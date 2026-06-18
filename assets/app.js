@@ -99,7 +99,7 @@ const SECTIONS = [
       ['broker_pct', 'Broker Commission %', 'pct', 'Sale commission as % of price. Typically 5–6%.'],
       ['transfer_rate', 'MA Transfer Tax ($ per $500)', 'num', 'MA deeds excise: $2.28 per $500. Applies even in a 1031.', 0.01],
       ['attorney_costs', 'Attorney Closing Costs', 'money', 'Legal fees, recording, title.'],
-      ['fixed_fees', 'Fixed Fees (UCC, escrow, filing)', 'money', 'Flat closing fees — a dollar amount, not a %. $300–700 typical.'],
+      ['fixed_fees', 'Fixed Fees (UCC, escrow, filing)', 'money', 'Flat closing fees, a dollar amount, not a %. $300–700 typical.'],
       ['prepay_penalty', 'Mortgage Prepayment Penalty', 'money', 'Early-payoff penalty, if any.'],
     ],
   },
@@ -107,13 +107,13 @@ const SECTIONS = [
     num: '4', title: '1031 EXCHANGE SIZING & REPLACEMENT',
     desc: 'How much equity each strategy rolls, and the new property’s economics. Cap rate and financing can differ by scenario since the replacement product may differ.',
     fields: [
-      ['partial_pct', 'Partial — % of equity reinvested', 'pct', 'Reinvest this share of your equity (the debt is replaced); the rest is taken as cash and taxed.'],
-      ['levered_pct', 'Levered — buy-up (× net sale price)', 'pct', 'Buy a property worth this multiple of your net sale price; your equity stays in and the rest is financed.'],
+      ['partial_pct', 'Partial: % of equity reinvested', 'pct', 'Reinvest this share of your equity (the debt is replaced); the rest is taken as cash and taxed.'],
+      ['levered_pct', 'Levered buy-up (× net sale price)', 'pct', 'Buy a property worth this multiple of your net sale price; your equity stays in and the rest is financed.'],
     ],
     matrix: true,
   },
   {
-    num: '5', title: 'TAX RATES (verified 2026 — rarely change)',
+    num: '5', title: 'TAX RATES (verified 2026)',
     desc: 'Tax-law constants. Pre-filled and verified June 2026. A CPA can override; a normal user never touches these.',
     collapsible: true, collapsed: true,
     fields: [
@@ -127,12 +127,12 @@ const SECTIONS = [
     ],
   },
   {
-    num: '6', title: 'ADVANCED — COST SEGREGATION',
+    num: '6', title: 'ADVANCED: COST SEGREGATION',
     desc: 'Only if cost-seg was done. Leave at defaults otherwise.',
     collapsible: true, collapsed: true,
     fields: [
       ['sec1245_depreciation', '§1245 / Cost-Seg Depreciation', 'money', 'Personal-property components recaptured at ordinary rate.'],
-      ['other_taxable_income', 'Other Taxable Income', 'money', 'Your other MA income — sets the surtax base.'],
+      ['other_taxable_income', 'Other Taxable Income', 'money', 'Your other MA income; sets the surtax base.'],
       ['cost_seg_flag', 'Recapture §1245 at ordinary rate?', 'check', 'On = add §1245 recapture to the tax stack.'],
     ],
   },
@@ -179,7 +179,7 @@ function replacementMatrix() {
       <thead><tr><th>Scenario</th><th>Cap Rate %</th><th>Loan Rate %</th><th>Term (yr)</th><th>Amort (yr)</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
-    <p class="mx-note">Cap rate drives each scenario’s NOI. Loan rate / term / amort apply to each scenario’s new loan — every exchange replaces (or adds) debt, so all three carry financing.</p>
+    <p class="mx-note">Cap rate drives each scenario’s NOI. Loan rate / term / amort apply to each scenario’s new loan. Every exchange replaces (or adds) debt, so all three carry financing.</p>
   </div>`;
 }
 
@@ -218,7 +218,7 @@ function renderAssumptions() {
   }
 
   // Calculated read-out card (transparency)
-  html += `<div class="card calc-card"><div class="sec-head">CALCULATED — THE TAXABLE GAIN</div>
+  html += `<div class="card calc-card"><div class="sec-head">CALCULATED: THE TAXABLE GAIN</div>
     <div class="body">
       <div class="calc-row"><div class="lbl">Total Selling Costs</div><div class="val" data-calc="transaction_costs">—</div></div>
       <div class="calc-row"><div class="lbl">Amount Realized (price − costs)</div><div class="val" data-calc="amount_realized">—</div></div>
@@ -275,43 +275,74 @@ function setFromInput(obj, key, type, raw) {
   obj[key] = type === 'pct' ? n / 100 : n;
 }
 
-/* ---------- chart: net proceeds + tax + annual net income (combined) ---------- */
-function chartSVG(r) {
+/* ---------- chart 1: position, debt & tax (one-time $) ---------- */
+function chartMoneySVG(r) {
   const items = [
-    { name: 'Sell & Pay', net: r.A.net_position, tax: r.A.total_tax, inc: 0, noInc: true },
-    { name: 'Full 1031', net: r.B.net_position, tax: r.B.total_tax, inc: r.B.net_cash_flow },
-    { name: 'Partial 1031', net: r.C.net_position, tax: r.C.total_tax, inc: r.C.net_cash_flow },
-    { name: 'Levered 1031', net: r.D.net_position, tax: r.D.total_tax, inc: r.D.net_cash_flow },
+    { name: 'Sell & Pay', net: r.A.net_position, debt: 0, tax: r.A.total_tax },
+    { name: 'Full 1031', net: r.B.net_position, debt: r.B.new_loan, tax: r.B.total_tax },
+    { name: 'Partial 1031', net: r.C.net_position, debt: r.C.new_loan, tax: r.C.total_tax },
+    { name: 'Levered 1031', net: r.D.net_position, debt: r.D.new_loan, tax: r.D.total_tax },
   ];
-  const W = 720, H = 300, padL = 12, padR = 12, padT = 34, padB = 46;
+  const W = 720, H = 270, padL = 12, padR = 12, padT = 34, padB = 44;
   const plotH = H - padT - padB;
   const baseY = padT + plotH;
-  const max = Math.max(1, ...items.flatMap((d) => [Math.abs(d.net), Math.abs(d.tax), Math.abs(d.inc)]));
+  const max = Math.max(1, ...items.flatMap((d) => [d.net, d.debt, d.tax]));
   const groupW = (W - padL - padR) / items.length;
   const barW = 30, gap = 5;
-  const NAVY = '#002855', ORANGE = '#ff7f32', TEAL = '#1d9e75';
-  const bar = (x, val, color) => {
-    if (!(val > 0)) return '';
-    const h = Math.max(0, (val / max) * plotH);
-    return `<rect x="${x.toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="2" fill="${color}"/>` +
-      `<text x="${(x + barW / 2).toFixed(1)}" y="${(baseY - h - 5).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${color}">${shortMoney(val)}</text>`;
+  const NAVY = '#002855', SLATE = '#7f95ad', ORANGE = '#ff7f32';
+  const bar = (x, v, c) => {
+    if (!(v > 0)) return '';
+    const h = Math.max(0, (v / max) * plotH);
+    return `<rect x="${x.toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="2" fill="${c}"/>` +
+      `<text x="${(x + barW / 2).toFixed(1)}" y="${(baseY - h - 5).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${c}">${shortMoney(v)}</text>`;
   };
   let bars = '';
   items.forEach((d, i) => {
     const gc = padL + groupW * (i + 0.5);
     const x0 = gc - (barW * 3 + gap * 2) / 2;
-    bars += bar(x0, d.net, NAVY);
-    bars += bar(x0 + barW + gap, d.tax, ORANGE);
-    if (!d.noInc) bars += bar(x0 + 2 * (barW + gap), d.inc, TEAL);
+    bars += bar(x0, d.net, NAVY) + bar(x0 + barW + gap, d.debt, SLATE) + bar(x0 + 2 * (barW + gap), d.tax, ORANGE);
     bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 18).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${NAVY}">${d.name}</text>`;
   });
   const legend = `
-    <rect x="12" y="6" width="11" height="11" rx="2" fill="${NAVY}"/><text x="27" y="15" font-size="11.5" fill="#5a6b7b">Net Proceeds / Position</text>
-    <rect x="192" y="6" width="11" height="11" rx="2" fill="${ORANGE}"/><text x="207" y="15" font-size="11.5" fill="#5a6b7b">Tax Due</text>
-    <rect x="262" y="6" width="11" height="11" rx="2" fill="${TEAL}"/><text x="277" y="15" font-size="11.5" fill="#5a6b7b">Annual Net Income (after debt)</text>`;
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Net proceeds, tax due, and annual net income by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Calibri,system-ui,sans-serif">
+    <rect x="12" y="6" width="11" height="11" rx="2" fill="${NAVY}"/><text x="27" y="15" font-size="11.5" fill="#5a6b7b">Net Proceeds / Equity Position</text>
+    <rect x="232" y="6" width="11" height="11" rx="2" fill="${SLATE}"/><text x="247" y="15" font-size="11.5" fill="#5a6b7b">New Debt</text>
+    <rect x="330" y="6" width="11" height="11" rx="2" fill="${ORANGE}"/><text x="345" y="15" font-size="11.5" fill="#5a6b7b">Tax Due This Year</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Net proceeds, new debt, and tax due by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Calibri,system-ui,sans-serif">
     <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>
     ${legend}
+    ${bars}
+  </svg>`;
+}
+
+/* ---------- chart 2: annual property income (NOI), own scale ---------- */
+function chartNOISVG(r) {
+  const items = [
+    { name: 'Sell & Pay', v: 0, none: true },
+    { name: 'Full 1031', v: r.B.noi },
+    { name: 'Partial 1031', v: r.C.noi },
+    { name: 'Levered 1031', v: r.D.noi },
+  ];
+  const W = 720, H = 200, padL = 12, padR = 12, padT = 22, padB = 40;
+  const plotH = H - padT - padB;
+  const baseY = padT + plotH;
+  const max = Math.max(1, ...items.map((d) => d.v));
+  const groupW = (W - padL - padR) / items.length;
+  const barW = 50, TEAL = '#1d9e75', NAVY = '#002855';
+  let bars = '';
+  items.forEach((d, i) => {
+    const gc = padL + groupW * (i + 0.5);
+    const x = gc - barW / 2;
+    if (d.none) {
+      bars += `<text x="${gc.toFixed(1)}" y="${(baseY - 4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#9aa7b4">no rental income</text>`;
+    } else {
+      const h = Math.max(0, (d.v / max) * plotH);
+      bars += `<rect x="${x.toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="3" fill="${TEAL}"/>` +
+        `<text x="${gc.toFixed(1)}" y="${(baseY - h - 6).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${TEAL}">${shortMoney(d.v)}</text>`;
+    }
+    bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 16).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${NAVY}">${d.name}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Annual NOI by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Calibri,system-ui,sans-serif">
+    <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>
     ${bars}
   </svg>`;
 }
@@ -342,7 +373,7 @@ function renderSummary(r) {
     <button class="btn-print no-print" onclick="window.print()" title="Print or save the client summary as PDF">⎙ Print / Save PDF</button>
     <h2 class="sum-title">Client Summary</h2>
     <p class="sum-sub">1031 Exchange &amp; Financing Analysis</p>
-    <p class="sum-note">Estimates only — confirm with your CPA &amp; attorney.</p>
+    <p class="sum-note">Estimates only. Confirm with your CPA &amp; attorney.</p>
   </div>
 
   <div class="bridge">
@@ -352,7 +383,7 @@ function renderSummary(r) {
     <div class="bridge-op">=</div>
     <div class="bridge-item total"><span class="bl">Value to Replace (net sale price)</span><span class="bv">${money(r.amount_realized)}</span></div>
   </div>
-  <p class="bridge-note">To <strong>fully defer</strong>, the replacement must match that value — your <strong>equity of ${money(r.equity_available)}</strong> reinvested <strong>plus a new loan of at least ${money(r.inputs.current_mortgage_payoff)}</strong> to replace the mortgage you paid off. Replace less value or less debt and the shortfall is taxed as “boot.”</p>
+  <p class="bridge-note">To fully defer, reinvest all <strong>${money(r.equity_available)}</strong> of equity and replace the <strong>${money(r.inputs.current_mortgage_payoff)}</strong> mortgage with new debt. Any shortfall is taxed as “boot.”</p>
 
   <table class="summary">
     <thead><tr><th>Scenario</th>${names.map((n) => `<th>${n}</th>`).join('')}</tr></thead>
@@ -379,23 +410,29 @@ function renderSummary(r) {
   </table>
 
   <div class="card chart-card"><div class="sec-head">AT A GLANCE</div>
-    <div class="body chart-body">${chartSVG(r)}</div>
+    <div class="body chart-body">
+      <div class="chart-title">Position, debt &amp; tax</div>
+      ${chartMoneySVG(r)}
+      <p class="chart-cap">The exchanges defer ${money(r.B.tax_deferred)} of tax versus selling, and trade up into a larger, financed asset.</p>
+      <div class="chart-title" style="margin-top:16px">Annual property income (NOI)</div>
+      ${chartNOISVG(r)}
+    </div>
   </div>
 
   <div id="warn-box" class="warnings"></div>
 
   <p class="footnote">Tax rates verified June 2026 (Fed ${pct(r.inputs.rate_ltcg, 0)} LTCG · ${pct(r.inputs.rate_recapture, 0)} recapture · ${pct(r.inputs.rate_niit)} NIIT · MA ${pct(r.inputs.ma_rate, 0)} + ${pct(r.inputs.ma_surtax_rate, 0)} surtax over ${money(r.inputs.ma_surtax_threshold)}). §1031 needs 45-day ID / 180-day close.</p>
 
-  <div class="disclaimer"><strong>Disclaimer.</strong> Estimates only — confirm with your accountant and attorney. §1031 deferral requires replacing value, equity, AND debt, plus the 45-day identification / 180-day closing deadlines; this model assumes a qualifying exchange. The §1.168(i)-6 election (Levered) and §1245 cost-seg recapture require CPA sign-off for a specific deal. The MA 4% surtax is computed on your other taxable income plus the recognized gain — enter accurate other income for a correct estimate.</div>
-  <div class="print-footer">Marcus &amp; Millichap | The Klein Group &nbsp;·&nbsp; 1031 Exchange &amp; Financing Analysis &nbsp;·&nbsp; Estimates only — confirm with your CPA &amp; attorney &nbsp;·&nbsp; Prepared ${dateStr}</div>
+  <div class="disclaimer"><strong>Disclaimer.</strong> Estimates only. Confirm with your accountant and attorney. §1031 deferral requires replacing value, equity, AND debt, plus the 45-day identification / 180-day closing deadlines; this model assumes a qualifying exchange. The §1.168(i)-6 election (Levered) and §1245 cost-seg recapture require CPA sign-off for a specific deal. The MA 4% surtax is computed on your other taxable income plus the recognized gain. Enter accurate other income for a correct estimate.</div>
+  <div class="print-footer">Marcus &amp; Millichap | The Klein Group &nbsp;·&nbsp; 1031 Exchange &amp; Financing Analysis &nbsp;·&nbsp; Estimates only. Confirm with your CPA &amp; attorney &nbsp;·&nbsp; Prepared ${dateStr}</div>
   `;
   root.innerHTML = html;
 
   const warns = [];
   if (r.equity_available < 0)
-    warns.push('Mortgage payoff exceeds net sale proceeds — there is no equity available to exchange, so the 1031 scenarios show $0.');
+    warns.push('Mortgage payoff exceeds net sale proceeds; there is no equity available to exchange, so the 1031 scenarios show $0.');
   if (r.C.cash_boot > 0)
-    warns.push('Partial exchange takes cash out — that cash is taxable this year as boot (recapture layer first).');
+    warns.push('Partial exchange takes cash out; that cash is taxable this year as boot (recapture layer first).');
   const wb = document.getElementById('warn-box');
   wb.innerHTML = warns.map((w) => `<div class="warn">⚠︎ ${w}</div>`).join('');
 }
@@ -473,7 +510,7 @@ function scenarioCard(scn, r) {
   }
 
   const deferBanner = deferred
-    ? `<div class="defer-banner">All gain deferred — $0 recognized this year (${money(scn.tax_deferred)} tax deferred vs. selling)</div>`
+    ? `<div class="defer-banner">All gain deferred. $0 recognized this year (${money(scn.tax_deferred)} tax deferred vs. selling)</div>`
     : '';
 
   return `<div class="scn-card ${meta.cls}">
@@ -499,7 +536,7 @@ function renderScenarios(r) {
     <div class="sum-head">
       <h2 class="sum-title">Scenario Detail</h2>
       <p class="sum-sub">The full tax stack and economics behind each option</p>
-      <p class="sum-note">Read-only — every figure derives from the Assumptions tab. Recapture is taxed first, then long-term capital gains.</p>
+      <p class="sum-note">Read-only. Every figure derives from the Assumptions tab. Recapture is taxed first, then long-term capital gains.</p>
     </div>
     <div class="scn-grid">
       ${scenarioCard(r.A, r)}
@@ -514,7 +551,7 @@ const FIN_FIELDS = [
   ['noi', 'Net Operating Income (NOI)', 'money'],
   ['sale_price', 'Property / Sale Price', 'money'],
   ['loan', 'Loan Amount', 'money'],
-  ['term_years', 'Loan Term (yrs) — balloon', 'num'],
+  ['term_years', 'Loan Term (yrs), balloon', 'num'],
   ['amort_years', 'Amortization (yrs)', 'num'],
   ['rate', 'Interest Rate', 'pct'],
 ];
@@ -528,7 +565,7 @@ function renderFinancing() {
 
   root.innerHTML = `
     <div class="card"><div class="sec-head"><span><span class="num">·</span>FINANCING INPUTS</span></div>
-      <div class="body"><p class="sec-desc">Standalone debt sizing — independent of the exchange logic. The same NOI, price, loan, and rate feed both the conventional (amortizing) and interest-only views.</p>${inputsHtml}</div>
+      <div class="body"><p class="sec-desc">Standalone debt sizing, independent of the exchange logic. The same NOI, price, loan, and rate feed both the conventional (amortizing) and interest-only views.</p>${inputsHtml}</div>
     </div>
     <div class="grid-2">
       <div class="card"><div class="sec-head">CONVENTIONAL (AMORTIZING)</div><div id="fin-conv" class="fin-out"></div></div>
@@ -617,7 +654,7 @@ function renderSavedDeals() {
   root.innerHTML = `
     <div class="sum-head"><h2 class="sum-title">Saved Deals &amp; Compare</h2>
       <p class="sum-sub">Save a property's inputs and compare options across deals</p>
-      <p class="sum-note">Stored only in this browser — nothing is uploaded.</p></div>
+      <p class="sum-note">Stored only in this browser; nothing is uploaded.</p></div>
     <div class="card"><div class="sec-head">SAVE CURRENT INPUTS</div>
       <div class="body"><div class="save-row">
         <input type="text" id="deal-name" placeholder="Name this deal (e.g. 1214 Park Ave)" aria-label="Deal name"/>

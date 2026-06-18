@@ -77,8 +77,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 24px 28px 80px; }
 }
 .card > .sec-head .num { color: var(--orange); margin-right: 8px; }
 .card.collapsible > .sec-head { cursor: pointer; }
-.card .sec-desc { padding: 10px 16px 0; color: var(--muted); font-size: 13px; }
-.card .body { padding: 14px 16px 16px; }
+.card .sec-desc { padding: 0; margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+.card .body { padding: 16px; }
 .card.collapsed .body { display: none; }
 .chevron { transition: transform .15s; }
 .card.collapsed .chevron { transform: rotate(-90deg); }
@@ -225,6 +225,7 @@ table.summary thead th.win { background: #013b7d; }
 
 /* ---------- Chart titles + highlighted income row ---------- */
 .chart-title { font-weight: 700; color: var(--navy); font-size: 13px; margin: 2px 0 6px; }
+.chart-cap { color: var(--muted); font-size: 12px; font-style: italic; margin: 8px 2px 4px; }
 table.summary tr.hi td { background: #e7f3ee; font-weight: 700; }
 
 /* ---------- Print ---------- */
@@ -244,7 +245,7 @@ table.summary tr.hi td { background: #e7f3ee; font-weight: 700; }
   /* Page 1 = header + bridge + table; Page 2 = chart + disclaimer */
   .chart-card { page-break-before: always; break-before: page; break-inside: avoid; margin-top: 0; }
   .disclaimer { break-inside: avoid; }
-  .chart-body svg { width: 100%; max-height: 120mm; }
+  .chart-body svg { width: auto; max-height: 64mm; max-width: 100%; display: block; margin: 0 auto; }
   table.summary th, table.summary td { padding: 4px 9px; font-size: 11px; }
   table.summary tr.section td { padding-top: 6px; padding-bottom: 3px; }
   .bridge { margin: 4px 0 10px; gap: 6px; }
