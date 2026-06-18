@@ -275,80 +275,43 @@ function setFromInput(obj, key, type, raw) {
   obj[key] = type === 'pct' ? n / 100 : n;
 }
 
-/* ---------- chart 1: net proceeds vs. tax ---------- */
+/* ---------- chart: net proceeds + tax + annual net income (combined) ---------- */
 function chartSVG(r) {
   const items = [
-    { name: 'Sell & Pay', net: r.A.net_position, tax: r.A.total_tax },
-    { name: 'Full 1031', net: r.B.net_position, tax: r.B.total_tax },
-    { name: 'Partial 1031', net: r.C.net_position, tax: r.C.total_tax },
-    { name: 'Levered 1031', net: r.D.net_position, tax: r.D.total_tax },
+    { name: 'Sell & Pay', net: r.A.net_position, tax: r.A.total_tax, inc: 0, noInc: true },
+    { name: 'Full 1031', net: r.B.net_position, tax: r.B.total_tax, inc: r.B.net_cash_flow },
+    { name: 'Partial 1031', net: r.C.net_position, tax: r.C.total_tax, inc: r.C.net_cash_flow },
+    { name: 'Levered 1031', net: r.D.net_position, tax: r.D.total_tax, inc: r.D.net_cash_flow },
   ];
-  const W = 720, H = 280, padL = 12, padR = 12, padT = 30, padB = 44;
+  const W = 720, H = 300, padL = 12, padR = 12, padT = 34, padB = 46;
   const plotH = H - padT - padB;
   const baseY = padT + plotH;
-  const max = Math.max(1, ...items.flatMap((d) => [Math.abs(d.net), Math.abs(d.tax)]));
+  const max = Math.max(1, ...items.flatMap((d) => [Math.abs(d.net), Math.abs(d.tax), Math.abs(d.inc)]));
   const groupW = (W - padL - padR) / items.length;
-  const barW = 36, gap = 10;
-  const NAVY = '#002855', ORANGE = '#ff7f32';
+  const barW = 30, gap = 5;
+  const NAVY = '#002855', ORANGE = '#ff7f32', TEAL = '#1d9e75';
+  const bar = (x, val, color) => {
+    if (!(val > 0)) return '';
+    const h = Math.max(0, (val / max) * plotH);
+    return `<rect x="${x.toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="2" fill="${color}"/>` +
+      `<text x="${(x + barW / 2).toFixed(1)}" y="${(baseY - h - 5).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${color}">${shortMoney(val)}</text>`;
+  };
   let bars = '';
   items.forEach((d, i) => {
     const gc = padL + groupW * (i + 0.5);
-    const startX = gc - (barW * 2 + gap) / 2;
-    const netH = Math.max(0, (Math.max(0, d.net) / max) * plotH);
-    const taxH = Math.max(0, (Math.max(0, d.tax) / max) * plotH);
-    bars += `<rect x="${startX.toFixed(1)}" y="${(baseY - netH).toFixed(1)}" width="${barW}" height="${netH.toFixed(1)}" rx="3" fill="${NAVY}"/>`;
-    bars += `<text x="${(startX + barW / 2).toFixed(1)}" y="${(baseY - netH - 6).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${NAVY}">${shortMoney(d.net)}</text>`;
-    const tx = startX + barW + gap;
-    if (d.tax > 0) {
-      bars += `<rect x="${tx.toFixed(1)}" y="${(baseY - taxH).toFixed(1)}" width="${barW}" height="${taxH.toFixed(1)}" rx="3" fill="${ORANGE}"/>`;
-      bars += `<text x="${(tx + barW / 2).toFixed(1)}" y="${(baseY - taxH - 6).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${ORANGE}">${shortMoney(d.tax)}</text>`;
-    } else {
-      bars += `<text x="${(tx + barW / 2).toFixed(1)}" y="${(baseY - 4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#9aa7b4">$0 tax</text>`;
-    }
+    const x0 = gc - (barW * 3 + gap * 2) / 2;
+    bars += bar(x0, d.net, NAVY);
+    bars += bar(x0 + barW + gap, d.tax, ORANGE);
+    if (!d.noInc) bars += bar(x0 + 2 * (barW + gap), d.inc, TEAL);
     bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 18).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${NAVY}">${d.name}</text>`;
   });
   const legend = `
-    <rect x="${W - 260}" y="6" width="12" height="12" rx="2" fill="${NAVY}"/>
-    <text x="${W - 244}" y="16" font-size="12" fill="#5a6b7b">Net Proceeds / Position</text>
-    <rect x="${W - 96}" y="6" width="12" height="12" rx="2" fill="${ORANGE}"/>
-    <text x="${W - 80}" y="16" font-size="12" fill="#5a6b7b">Tax Due</text>`;
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Net proceeds versus tax by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Calibri,system-ui,sans-serif">
+    <rect x="12" y="6" width="11" height="11" rx="2" fill="${NAVY}"/><text x="27" y="15" font-size="11.5" fill="#5a6b7b">Net Proceeds / Position</text>
+    <rect x="192" y="6" width="11" height="11" rx="2" fill="${ORANGE}"/><text x="207" y="15" font-size="11.5" fill="#5a6b7b">Tax Due</text>
+    <rect x="262" y="6" width="11" height="11" rx="2" fill="${TEAL}"/><text x="277" y="15" font-size="11.5" fill="#5a6b7b">Annual Net Income (after debt)</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Net proceeds, tax due, and annual net income by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Calibri,system-ui,sans-serif">
     <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>
     ${legend}
-    ${bars}
-  </svg>`;
-}
-
-/* ---------- chart 2: annual net income after debt ---------- */
-function chartIncomeSVG(r) {
-  const items = [
-    { name: 'Sell & Pay', v: 0, none: true },
-    { name: 'Full 1031', v: r.B.net_cash_flow },
-    { name: 'Partial 1031', v: r.C.net_cash_flow },
-    { name: 'Levered 1031', v: r.D.net_cash_flow },
-  ];
-  const W = 720, H = 210, padL = 12, padR = 12, padT = 24, padB = 40;
-  const plotH = H - padT - padB;
-  const baseY = padT + plotH;
-  const max = Math.max(1, ...items.map((d) => Math.abs(d.v)));
-  const groupW = (W - padL - padR) / items.length;
-  const barW = 46;
-  const TEAL = '#1d9e75', NAVY = '#002855';
-  let bars = '';
-  items.forEach((d) => {
-    const gc = padL + groupW * (items.indexOf(d) + 0.5);
-    const x = gc - barW / 2;
-    if (d.none) {
-      bars += `<text x="${gc.toFixed(1)}" y="${(baseY - 4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#9aa7b4">no rental income</text>`;
-    } else {
-      const h = Math.max(0, (Math.max(0, d.v) / max) * plotH);
-      bars += `<rect x="${x.toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="3" fill="${TEAL}"/>`;
-      bars += `<text x="${gc.toFixed(1)}" y="${(baseY - h - 6).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${TEAL}">${shortMoney(d.v)}</text>`;
-    }
-    bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 16).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${NAVY}">${d.name}</text>`;
-  });
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Annual net income after debt by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Calibri,system-ui,sans-serif">
-    <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>
     ${bars}
   </svg>`;
 }
@@ -358,7 +321,6 @@ function renderSummary(r) {
   const root = document.getElementById('view-summary');
   const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   const names = ['Sell &amp; Pay', 'Full 1031', 'Partial 1031', 'Levered 1031'];
-  const how = ['Sell now, pay the full tax', 'Roll 100% into one property', 'Roll part, cash out the rest', 'Trade up using new debt'];
 
   const row = (label, vals, opts = {}) => {
     if (opts.section) return `<tr class="section"><td colspan="5">${label}</td></tr>`;
@@ -396,8 +358,6 @@ function renderSummary(r) {
   <table class="summary">
     <thead><tr><th>Scenario</th>${names.map((n) => `<th>${n}</th>`).join('')}</tr></thead>
     <tbody>
-      ${row('How it works', how, { how: true })}
-
       ${row('THE EXCHANGE MATH', null, { section: true })}
       ${row('Reinvestment / Buy-Up %', ['—', pct(r.B.reinvest_pct), pct(r.C.reinvest_pct), pct(r.D.reinvest_pct)])}
       ${row('New Property Value', ['—', money(r.B.replacement_value), money(r.C.replacement_value), money(r.D.replacement_value)], { strong: true })}
@@ -420,25 +380,11 @@ function renderSummary(r) {
   </table>
 
   <div class="card chart-card"><div class="sec-head">AT A GLANCE</div>
-    <div class="body chart-body">
-      <div class="chart-title">Net proceeds vs. tax due</div>
-      ${chartSVG(r)}
-      <div class="chart-title" style="margin-top:16px">Annual net income after debt</div>
-      ${chartIncomeSVG(r)}
-    </div>
+    <div class="body chart-body">${chartSVG(r)}</div>
   </div>
 
   <div id="warn-box" class="warnings"></div>
 
-  <div class="reading">
-    <div class="sec-head">READING THE MATH</div>
-    <ul>
-      <li><strong>Sell &amp; Pay:</strong> sell for the price, subtract costs, pay tax on the full gain. Largest tax, full liquidity.</li>
-      <li><strong>Full 1031:</strong> 100% of available equity buys a property of equal value. Nothing recognized — all tax deferred.</li>
-      <li><strong>Partial 1031:</strong> only the reinvested % defers tax; the equity you keep (boot) is taxed, recapture first.</li>
-      <li><strong>Levered 1031:</strong> buy above your equity with a new loan (auto-sized to the gap). No boot, bigger asset &amp; depreciation shield.</li>
-    </ul>
-  </div>
   <p class="footnote">Tax rates verified June 2026 (Fed ${pct(r.inputs.rate_ltcg, 0)} LTCG · ${pct(r.inputs.rate_recapture, 0)} recapture · ${pct(r.inputs.rate_niit)} NIIT · MA ${pct(r.inputs.ma_rate, 0)} + ${pct(r.inputs.ma_surtax_rate, 0)} surtax over ${money(r.inputs.ma_surtax_threshold)}). §1031 needs 45-day ID / 180-day close.</p>
 
   <div class="disclaimer"><strong>Disclaimer.</strong> Estimates only — confirm with your accountant and attorney. §1031 deferral requires replacing value, equity, AND debt, plus the 45-day identification / 180-day closing deadlines; this model assumes a qualifying exchange. The §1.168(i)-6 election (Levered) and §1245 cost-seg recapture require CPA sign-off for a specific deal. The MA 4% surtax is computed on your other taxable income plus the recognized gain — enter accurate other income for a correct estimate.</div>

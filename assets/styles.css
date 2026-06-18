@@ -236,14 +236,21 @@ table.summary tr.hi td { background: #e7f3ee; font-weight: 700; }
   .print-header .ph-brand { font-family: "Frank Ruhl Libre", Georgia, serif; color: var(--orange); font-size: 20px; font-weight: 800; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .print-header .ph-sub { color: var(--navy); font-weight: 700; font-size: 12px; margin-top: 2px; }
   .print-footer { display: block; margin-top: 16px; border-top: 1px solid var(--line); padding-top: 6px; color: var(--muted); font-size: 10px; text-align: center; }
-  body { background: #fff; font-size: 12px; }
+  body { background: #fff; font-size: 11px; }
   main { padding: 0; max-width: 100%; }
   .card, table.summary { box-shadow: none !important; }
-  .chart-card, .reading, .disclaimer { break-inside: avoid; page-break-inside: avoid; }
-  .chart-body svg { width: auto; max-height: 68mm; max-width: 100%; }
-  .chart-title { margin-top: 6px; }
+  /* Page 1 = header + bridge + table; Page 2 = chart + disclaimer */
+  .chart-card { page-break-before: always; break-before: page; break-inside: avoid; margin-top: 0; }
+  .disclaimer { break-inside: avoid; }
+  .chart-body svg { width: 100%; max-height: 120mm; }
+  table.summary th, table.summary td { padding: 4px 9px; font-size: 11px; }
+  table.summary tr.section td { padding-top: 6px; padding-bottom: 3px; }
+  .bridge { margin: 4px 0 10px; gap: 6px; }
+  .bridge-item { padding: 6px 10px; min-width: 0; }
+  .bridge-item .bv { font-size: 13px; }
+  .print-header { margin-bottom: 8px; padding-bottom: 6px; }
   .bridge-item, .bridge-item.total { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   table.summary tr.bottom td, table.summary tr.hi td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  thead th, tr.section td, tr.howrow td, tr.bottom td, .sec-head, .mx-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  @page { size: landscape; margin: 10mm; }
+  thead th, tr.section td, tr.bottom td, .sec-head, .mx-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { size: landscape; margin: 9mm; }
 }
