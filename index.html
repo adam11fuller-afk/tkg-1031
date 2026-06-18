@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>1031 Exchange &amp; Financing Calculator — The Klein Group</title>
+  <meta name="description" content="Compare Sell &amp; Pay vs. Full, Partial, and Leveraged §1031 exchanges. Marcus &amp; Millichap | The Klein Group." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="masthead">
+    <div class="wrap">
+      <button class="btn-reset" id="reset-btn" title="Restore the 1214 Park defaults">Reset to defaults</button>
+      <h1 class="brand">MARCUS &amp; MILLICHAP&nbsp;&nbsp;|&nbsp;&nbsp;THE KLEIN GROUP</h1>
+      <p class="subtitle">1031 Exchange &amp; Financing Analysis</p>
+      <p class="tagline">Four ways to handle this sale. A 1031 exchange defers tax by rolling proceeds into a new property. Estimates only — confirm with your CPA &amp; attorney.</p>
+      <div class="legend">
+        <span class="chip"><span class="sw input"></span> Blue = your input</span>
+        <span class="chip"><span class="sw calc"></span> Plain = calculated</span>
+        <span class="chip"><span class="sw total"></span> Orange = result / total</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="tabs-bar">
+    <nav class="tabs" id="tabs">
+      <button data-tab="assumptions" class="active">Assumptions &amp; Inputs</button>
+      <button data-tab="summary">Client Summary</button>
+      <button data-tab="scenarios">Scenario Detail</button>
+      <button data-tab="financing">Financing Tool</button>
+      <button data-tab="saved">Saved Deals</button>
+    </nav>
+  </div>
+
+  <main>
+    <section id="view-assumptions" class="view active"></section>
+    <section id="view-summary" class="view"></section>
+    <section id="view-scenarios" class="view"></section>
+    <section id="view-financing" class="view"></section>
+    <section id="view-saved" class="view"></section>
+  </main>
+
+  <script src="assets/calc.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
