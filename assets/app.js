@@ -107,7 +107,8 @@ const SECTIONS = [
     num: '4', title: '1031 EXCHANGE SIZING & REPLACEMENT',
     desc: 'How much equity each strategy rolls, and the new property’s economics. Cap rate and financing can differ by scenario since the replacement product may differ.',
     fields: [
-      ['partial_pct', 'Partial: % of equity reinvested', 'pct', 'Reinvest this share of your equity (the debt is replaced); the rest is taken as cash and taxed.'],
+      ['partial_pct', 'Partial: % of equity reinvested', 'pct', 'Reinvest this share of your equity; the rest is taken as cash and taxed.'],
+      ['partial_replace_debt', 'Partial: replace the mortgage with new debt?', 'check', 'On = take a new loan to replace the debt, so only the cash you pull is taxed. Off = pay off the mortgage and take cash; the debt relief is also taxed as boot.'],
       ['levered_pct', 'Levered buy-up (× net sale price)', 'pct', 'Buy a property worth this multiple of your net sale price; your equity stays in and the rest is financed.'],
     ],
     matrix: true,
@@ -289,7 +290,7 @@ function chartMoneySVG(r) {
   const max = Math.max(1, ...items.flatMap((d) => [d.net, d.debt, d.tax]));
   const groupW = (W - padL - padR) / items.length;
   const barW = 30, gap = 5;
-  const NAVY = '#002855', SLATE = '#7f95ad', ORANGE = '#ff7f32';
+  const NAVY = '#002f5f', SLATE = '#6e8aa6', ORANGE = '#9e5436';
   const bar = (x, v, c) => {
     if (!(v > 0)) return '';
     const h = Math.max(0, (v / max) * plotH);
@@ -327,7 +328,7 @@ function chartNOISVG(r) {
   const baseY = padT + plotH;
   const max = Math.max(1, ...items.map((d) => d.v));
   const groupW = (W - padL - padR) / items.length;
-  const barW = 50, TEAL = '#1d9e75', NAVY = '#002855';
+  const barW = 50, TEAL = '#2f7d6b', NAVY = '#002f5f';
   let bars = '';
   items.forEach((d, i) => {
     const gc = padL + groupW * (i + 0.5);
@@ -366,7 +367,8 @@ function renderSummary(r) {
 
   let html = `
   <div class="print-header">
-    <div class="ph-brand">MARCUS &amp; MILLICHAP&nbsp;&nbsp;|&nbsp;&nbsp;THE KLEIN GROUP</div>
+    <img class="ph-logo" src="assets/mm-logo-blue.png" alt="Marcus &amp; Millichap" />
+    <div class="ph-team">THE KLEIN GROUP</div>
     <div class="ph-sub">1031 Exchange &amp; Financing Analysis &nbsp;·&nbsp; Prepared ${dateStr}</div>
   </div>
   <div class="sum-head">

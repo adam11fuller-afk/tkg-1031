@@ -29,6 +29,7 @@ const DEFAULTS = {
   manual_depreciation: 423900,
   // 2A-ter · Exchange sizing — how much equity each strategy rolls
   partial_pct: 0.50,
+  partial_replace_debt: 1, // 1 = partial takes a new loan to replace the debt; 0 = pay off & take cash (debt relief is boot)
   levered_pct: 1.25,
   // Per-scenario replacement economics — product type (cap rate) and financing
   // (loan rate / term / amort) can differ by strategy.
@@ -156,10 +157,11 @@ function compute(i) {
 
   // ---- Scenario C — Partial 1031: reinvest part of equity, REPLACE the debt, take rest as cash ----
   const parEquity = i.partial_pct * eq;
+  const parLoan = i.partial_replace_debt === 1 ? debt : 0; // replace debt, or pay it off (debt relief = boot)
   const szPartial = {
-    replacement_value: parEquity + debt,
+    replacement_value: parEquity + parLoan,
     equity_contributed: parEquity,
-    new_loan: debt,                              // replace the debt → only the cash kept is boot
+    new_loan: parLoan,
     cash_boot: Math.max(0, eq - parEquity),
   };
   const recognized_boot = recognizedFrom(szPartial.cash_boot, szPartial.new_loan);
