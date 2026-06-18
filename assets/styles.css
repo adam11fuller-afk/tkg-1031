@@ -208,6 +208,8 @@ table.summary thead th.win { background: #013b7d; }
 .bridge-item.total { background: var(--total-fill); border-color: var(--orange); }
 .bridge-item.total .bv { color: var(--navy); }
 .bridge-op { display: flex; align-items: center; color: var(--muted); font-size: 18px; font-weight: 700; }
+.bridge-note { color: var(--muted); font-size: 12.5px; margin: -8px 0 18px; line-height: 1.5; }
+.bridge-note strong { color: var(--navy); }
 
 /* ---------- Replacement matrix (per-scenario) ---------- */
 .mx-wrap { margin-top: 12px; }

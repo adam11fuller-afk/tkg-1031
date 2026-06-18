@@ -107,8 +107,8 @@ const SECTIONS = [
     num: '4', title: '1031 EXCHANGE SIZING & REPLACEMENT',
     desc: 'How much equity each strategy rolls, and the new property’s economics. Cap rate and financing can differ by scenario since the replacement product may differ.',
     fields: [
-      ['partial_pct', 'Partial — % of equity reinvested', 'pct', 'How much available equity rolls into the new property; the rest is taxable boot.'],
-      ['levered_pct', 'Levered — % of equity (buy-up)', 'pct', 'Buy a property worth this multiple of available equity; the gap is financed.'],
+      ['partial_pct', 'Partial — % of equity reinvested', 'pct', 'Reinvest this share of your equity (the debt is replaced); the rest is taken as cash and taxed.'],
+      ['levered_pct', 'Levered — buy-up (× net sale price)', 'pct', 'Buy a property worth this multiple of your net sale price; your equity stays in and the rest is financed.'],
     ],
     matrix: true,
   },
@@ -179,7 +179,7 @@ function replacementMatrix() {
       <thead><tr><th>Scenario</th><th>Cap Rate %</th><th>Loan Rate %</th><th>Term (yr)</th><th>Amort (yr)</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
-    <p class="mx-note">Cap rate drives each scenario’s NOI. Loan rate / term / amort apply where a scenario carries new debt (Levered by default); Full &amp; Partial assume no new loan.</p>
+    <p class="mx-note">Cap rate drives each scenario’s NOI. Loan rate / term / amort apply to each scenario’s new loan — every exchange replaces (or adds) debt, so all three carry financing.</p>
   </div>`;
 }
 
@@ -349,11 +349,10 @@ function renderSummary(r) {
     <div class="bridge-item"><span class="bl">Sale Price</span><span class="bv">${money(r.inputs.sale_price)}</span></div>
     <div class="bridge-op">−</div>
     <div class="bridge-item"><span class="bl">Selling Costs</span><span class="bv">${money(r.transaction_costs)}</span></div>
-    <div class="bridge-op">−</div>
-    <div class="bridge-item"><span class="bl">Mortgage Payoff</span><span class="bv">${money(r.inputs.current_mortgage_payoff)}</span></div>
     <div class="bridge-op">=</div>
-    <div class="bridge-item total"><span class="bl">Equity Available to Exchange</span><span class="bv">${money(r.equity_available)}</span></div>
+    <div class="bridge-item total"><span class="bl">Value to Replace (net sale price)</span><span class="bv">${money(r.amount_realized)}</span></div>
   </div>
+  <p class="bridge-note">To <strong>fully defer</strong>, the replacement must match that value — your <strong>equity of ${money(r.equity_available)}</strong> reinvested <strong>plus a new loan of at least ${money(r.inputs.current_mortgage_payoff)}</strong> to replace the mortgage you paid off. Replace less value or less debt and the shortfall is taxed as “boot.”</p>
 
   <table class="summary">
     <thead><tr><th>Scenario</th>${names.map((n) => `<th>${n}</th>`).join('')}</tr></thead>
@@ -362,7 +361,7 @@ function renderSummary(r) {
       ${row('Reinvestment / Buy-Up %', ['—', pct(r.B.reinvest_pct), pct(r.C.reinvest_pct), pct(r.D.reinvest_pct)])}
       ${row('New Property Value', ['—', money(r.B.replacement_value), money(r.C.replacement_value), money(r.D.replacement_value)], { strong: true })}
       ${row('Equity Put Into Property', ['—', money(r.B.equity_contributed), money(r.C.equity_contributed), money(r.D.equity_contributed)])}
-      ${row('New Loan (auto-sized)', ['—', money(r.B.new_loan), '—', money(r.D.new_loan)])}
+      ${row('New Loan (replaces debt)', ['—', money(r.B.new_loan), money(r.C.new_loan), money(r.D.new_loan)])}
       ${row('Cash Boot Taken (taxed)', ['—', '—', money(r.C.cash_boot), '—'])}
 
       ${row('THE TAX', null, { section: true })}
@@ -395,12 +394,8 @@ function renderSummary(r) {
   const warns = [];
   if (r.equity_available < 0)
     warns.push('Mortgage payoff exceeds net sale proceeds — there is no equity available to exchange, so the 1031 scenarios show $0.');
-  if (r.B.replacement_value < r.inputs.sale_price)
-    warns.push('Full 1031 replacement value is below the relinquished sale price — replacing less value can break full §1031 deferral.');
-  if (r.D.replacement_value < r.inputs.sale_price)
-    warns.push('Levered replacement value is below the relinquished sale price — check that value, equity, and debt are fully replaced.');
   if (r.C.cash_boot > 0)
-    warns.push('Partial exchange takes cash boot — that portion is taxable this year (recapture layer first).');
+    warns.push('Partial exchange takes cash out — that cash is taxable this year as boot (recapture layer first).');
   const wb = document.getElementById('warn-box');
   wb.innerHTML = warns.map((w) => `<div class="warn">⚠︎ ${w}</div>`).join('');
 }
@@ -444,18 +439,22 @@ function scenarioCard(scn, r) {
     position =
       detailRow('New Property Value', money(scn.replacement_value), { strong: true }) +
       detailRow('Equity Invested', money(scn.equity_contributed)) +
-      detailRow('New Loan', money(scn.new_loan)) +
+      detailRow('New Loan (replaces debt)', money(scn.new_loan)) +
       detailRow('Annual NOI', money(scn.noi)) +
+      detailRow('Annual Debt Service', money(scn.annual_debt_service)) +
       detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
       detailRow('Equity Position', money(scn.net_position), { hero: true });
   } else if (scn.key === 'C') {
     position =
       detailRow('New Property Value', money(scn.replacement_value), { strong: true }) +
       detailRow('Equity Reinvested (deferred)', money(scn.equity_contributed)) +
-      detailRow('Cash Boot Taken', money(scn.cash_boot)) +
+      detailRow('New Loan (replaces debt)', money(scn.new_loan)) +
+      detailRow('Cash Taken Out', money(scn.cash_boot)) +
       detailRow('Less: Tax on Boot', money(-scn.total_tax)) +
       detailRow('Boot Cash Kept', money(scn.boot_cash_kept)) +
       detailRow('Annual NOI', money(scn.noi)) +
+      detailRow('Annual Debt Service', money(scn.annual_debt_service)) +
+      detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
       detailRow('Total Position (equity + cash)', money(scn.net_position), { hero: true });
   } else {
     position =

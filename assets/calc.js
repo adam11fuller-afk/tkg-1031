@@ -53,15 +53,6 @@ const DEFAULTS = {
   prepay_penalty: 0,
 };
 
-/* Size a single 1031 scenario off the equity legally available to roll. (§3.4) */
-function sizeScenario(pct, equity_available) {
-  const replacement_value = pct * equity_available;
-  const equity_contributed = Math.min(equity_available, replacement_value);
-  const new_loan = Math.max(0, replacement_value - equity_contributed); // >0 only when buying up
-  const cash_boot = Math.max(0, equity_available - replacement_value);   // >0 only when partial
-  return { replacement_value, equity_contributed, new_loan, cash_boot };
-}
-
 /* Hold economics for one scenario (§3.6). p = { yield, rate, amort }. */
 function holdEconomics(p, sz) {
   const noi = sz.replacement_value * p.yield;
@@ -121,14 +112,13 @@ function compute(i) {
     };
   };
 
-  // 3.4 Exchange sizing
-  const equity_available = amount_realized - i.current_mortgage_payoff;
-  // Underwater sale (payoff > proceeds) → no equity to roll. Clamp so the sizing
-  // MIN/MAX rules don't manufacture phantom loans/boot on negative equity.
-  const eq_for_sizing = Math.max(0, equity_available);
-  const szFull = sizeScenario(1.0, eq_for_sizing);
-  const szPartial = sizeScenario(i.partial_pct, eq_for_sizing);
-  const szLevered = sizeScenario(i.levered_pct, eq_for_sizing);
+  // 3.4 Exchange sizing — full deferral requires replacing VALUE, EQUITY, and DEBT.
+  // Boot recognized = cash equity not reinvested  +  old debt not replaced by new debt.
+  const equity_available = amount_realized - i.current_mortgage_payoff; // cash equity
+  const eq = Math.max(0, equity_available);
+  const debt = i.current_mortgage_payoff;                                // debt to replace
+  const recognizedFrom = (cash_boot, new_loan) =>
+    Math.min(realized_gain, Math.max(0, cash_boot) + Math.max(0, debt - new_loan));
 
   // ---- Scenario A — Sell & Pay (§3.5) ----
   const taxA = tax(realized_gain);
@@ -141,26 +131,41 @@ function compute(i) {
     tax_deferred: 0,
   };
 
-  // ---- Scenario B — Full 1031 ----
+  // ---- Scenario B — Full 1031: replace the full net value (equity + new debt = old debt) ----
+  const szFull = {
+    replacement_value: amount_realized,
+    equity_contributed: eq,
+    new_loan: Math.max(0, amount_realized - eq), // = debt, fully replaced
+    cash_boot: 0,
+  };
+  const recB = recognizedFrom(szFull.cash_boot, szFull.new_loan);
+  const taxB = tax(recB);
   const ecoFull = holdEconomics({ yield: i.full_yield, rate: i.full_rate, amort: i.full_amort }, szFull);
   const B = {
     key: 'B',
     reinvest_pct: 1.0,
     ...szFull,
-    recognized_gain: 0,
-    total_tax: 0,
-    tax_breakdown: tax(0),
+    recognized_gain: recB,
+    total_tax: taxB.total,
+    tax_breakdown: taxB,
     ...ecoFull,
     return_metric: ecoFull.cash_on_cash,
     net_position: szFull.equity_contributed,
-    tax_deferred: taxA.total,
+    tax_deferred: taxA.total - taxB.total,
   };
 
-  // ---- Scenario C — Partial 1031 (§3.7) ----
-  const recognized_boot = Math.min(realized_gain, szPartial.cash_boot);
+  // ---- Scenario C — Partial 1031: reinvest part of equity, REPLACE the debt, take rest as cash ----
+  const parEquity = i.partial_pct * eq;
+  const szPartial = {
+    replacement_value: parEquity + debt,
+    equity_contributed: parEquity,
+    new_loan: debt,                              // replace the debt → only the cash kept is boot
+    cash_boot: Math.max(0, eq - parEquity),
+  };
+  const recognized_boot = recognizedFrom(szPartial.cash_boot, szPartial.new_loan);
   const taxC = tax(recognized_boot);
   const boot_cash_kept = szPartial.cash_boot - taxC.total;
-  const noiC = szPartial.replacement_value * i.partial_yield;
+  const ecoPartial = holdEconomics({ yield: i.partial_yield, rate: i.partial_rate, amort: i.partial_amort }, szPartial);
   const C = {
     key: 'C',
     reinvest_pct: i.partial_pct,
@@ -168,17 +173,23 @@ function compute(i) {
     recognized_gain: recognized_boot,
     total_tax: taxC.total,
     tax_breakdown: taxC,
-    noi: noiC,
-    annual_debt_service: 0,
-    net_cash_flow: noiC, // no new debt assumed on partial
-    cash_on_cash: null,  // not presented for partial (mixed cash-out + hold)
-    return_metric: null,
+    ...ecoPartial,
+    return_metric: null,  // mixed cash-out + hold; not shown
     boot_cash_kept,
-    net_position: szPartial.replacement_value + boot_cash_kept,
+    net_position: szPartial.equity_contributed + boot_cash_kept,
     tax_deferred: taxA.total - taxC.total,
   };
 
-  // ---- Scenario D — Levered 1031 (§3.6 + carryover-basis depreciation) ----
+  // ---- Scenario D — Levered 1031: trade up to a multiple of net sale price ----
+  const levValue = i.levered_pct * amount_realized;
+  const szLevered = {
+    replacement_value: levValue,
+    equity_contributed: Math.min(eq, levValue),
+    new_loan: Math.max(0, levValue - Math.min(eq, levValue)),
+    cash_boot: 0,
+  };
+  const recD = recognizedFrom(szLevered.cash_boot, szLevered.new_loan);
+  const taxD = tax(recD);
   const ecoLev = holdEconomics({ yield: i.levered_yield, rate: i.levered_rate, amort: i.levered_amort }, szLevered);
   const substituted_basis = szLevered.replacement_value - realized_gain;
   const depreciable_basis = substituted_basis * (1 - i.land_pct);
@@ -196,9 +207,9 @@ function compute(i) {
     key: 'D',
     reinvest_pct: i.levered_pct,
     ...szLevered,
-    recognized_gain: 0,
-    total_tax: 0,
-    tax_breakdown: tax(0),
+    recognized_gain: recD,
+    total_tax: taxD.total,
+    tax_breakdown: taxD,
     ...ecoLev,
     substituted_basis,
     depreciable_basis,
@@ -210,7 +221,7 @@ function compute(i) {
     total_return_equity,
     return_metric: total_return_equity,
     net_position: szLevered.equity_contributed,
-    tax_deferred: taxA.total,
+    tax_deferred: taxA.total - taxD.total,
   };
 
   return {
