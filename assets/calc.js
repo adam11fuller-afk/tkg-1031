@@ -177,6 +177,7 @@ function compute(i) {
     tax_breakdown: taxC,
     ...ecoPartial,
     return_metric: null,  // mixed cash-out + hold; not shown
+    mortgage_boot: Math.max(0, debt - szPartial.new_loan), // debt relief taxed when not replaced
     boot_cash_kept,
     net_position: szPartial.equity_contributed + boot_cash_kept,
     tax_deferred: taxA.total - taxC.total,

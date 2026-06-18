@@ -308,7 +308,7 @@ function chartMoneySVG(r) {
     <rect x="12" y="6" width="11" height="11" rx="2" fill="${NAVY}"/><text x="27" y="15" font-size="11.5" fill="#5a6b7b">Net Proceeds / Equity Position</text>
     <rect x="232" y="6" width="11" height="11" rx="2" fill="${SLATE}"/><text x="247" y="15" font-size="11.5" fill="#5a6b7b">New Debt</text>
     <rect x="330" y="6" width="11" height="11" rx="2" fill="${ORANGE}"/><text x="345" y="15" font-size="11.5" fill="#5a6b7b">Tax Due This Year</text>`;
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Net proceeds, new debt, and tax due by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Calibri,system-ui,sans-serif">
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Net proceeds, new debt, and tax due by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Roboto,system-ui,sans-serif">
     <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>
     ${legend}
     ${bars}
@@ -334,7 +334,7 @@ function chartNOISVG(r) {
     const gc = padL + groupW * (i + 0.5);
     const x = gc - barW / 2;
     if (d.none) {
-      bars += `<text x="${gc.toFixed(1)}" y="${(baseY - 4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#9aa7b4">no rental income</text>`;
+      bars += `<text x="${gc.toFixed(1)}" y="${(baseY - 4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#6b7884">no rental income</text>`;
     } else {
       const h = Math.max(0, (d.v / max) * plotH);
       bars += `<rect x="${x.toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="3" fill="${TEAL}"/>` +
@@ -342,7 +342,7 @@ function chartNOISVG(r) {
     }
     bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 16).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${NAVY}">${d.name}</text>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Annual NOI by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Calibri,system-ui,sans-serif">
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Annual NOI by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Roboto,system-ui,sans-serif">
     <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>
     ${bars}
   </svg>`;
@@ -387,15 +387,16 @@ function renderSummary(r) {
   </div>
   <p class="bridge-note">To fully defer, reinvest all <strong>${money(r.equity_available)}</strong> of equity and replace the <strong>${money(r.inputs.current_mortgage_payoff)}</strong> mortgage with new debt. Any shortfall is taxed as “boot.”</p>
 
-  <table class="summary">
+  <div class="table-scroll"><table class="summary">
     <thead><tr><th>Scenario</th>${names.map((n) => `<th>${n}</th>`).join('')}</tr></thead>
     <tbody>
       ${row('THE EXCHANGE MATH', null, { section: true })}
       ${row('Reinvestment / Buy-Up %', ['—', pct(r.B.reinvest_pct), pct(r.C.reinvest_pct), pct(r.D.reinvest_pct)])}
       ${row('New Property Value', ['—', money(r.B.replacement_value), money(r.C.replacement_value), money(r.D.replacement_value)], { strong: true })}
       ${row('Equity Put Into Property', ['—', money(r.B.equity_contributed), money(r.C.equity_contributed), money(r.D.equity_contributed)])}
-      ${row('New Loan (replaces debt)', ['—', money(r.B.new_loan), money(r.C.new_loan), money(r.D.new_loan)])}
-      ${row('Cash Boot Taken (taxed)', ['—', '—', money(r.C.cash_boot), '—'])}
+      ${row('New Loan', ['—', money(r.B.new_loan), money(r.C.new_loan), money(r.D.new_loan)])}
+      ${row('Cash Boot Taken', ['—', '—', money(r.C.cash_boot), '—'])}
+      ${r.C.mortgage_boot > 0 ? row('Mortgage Boot (debt relief, taxed)', ['—', '—', money(r.C.mortgage_boot), '—']) : ''}
 
       ${row('THE TAX', null, { section: true })}
       ${row('Realized Gain', [money(r.realized_gain), money(r.realized_gain), money(r.realized_gain), money(r.realized_gain)])}
@@ -409,7 +410,9 @@ function renderSummary(r) {
 
       ${row('Net Proceeds / Position', [money(r.A.net_position), money(r.B.net_position), money(r.C.net_position), money(r.D.net_position)], { bottom: true })}
     </tbody>
-  </table>
+  </table></div>
+
+  <div id="warn-box" class="warnings"></div>
 
   <div class="card chart-card"><div class="sec-head">AT A GLANCE</div>
     <div class="body chart-body">
@@ -421,8 +424,6 @@ function renderSummary(r) {
     </div>
   </div>
 
-  <div id="warn-box" class="warnings"></div>
-
   <p class="footnote">Tax rates verified June 2026 (Fed ${pct(r.inputs.rate_ltcg, 0)} LTCG · ${pct(r.inputs.rate_recapture, 0)} recapture · ${pct(r.inputs.rate_niit)} NIIT · MA ${pct(r.inputs.ma_rate, 0)} + ${pct(r.inputs.ma_surtax_rate, 0)} surtax over ${money(r.inputs.ma_surtax_threshold)}). §1031 needs 45-day ID / 180-day close.</p>
 
   <div class="disclaimer"><strong>Disclaimer.</strong> Estimates only. Confirm with your accountant and attorney. §1031 deferral requires replacing value, equity, AND debt, plus the 45-day identification / 180-day closing deadlines; this model assumes a qualifying exchange. The §1.168(i)-6 election (Levered) and §1245 cost-seg recapture require CPA sign-off for a specific deal. The MA 4% surtax is computed on your other taxable income plus the recognized gain. Enter accurate other income for a correct estimate.</div>
@@ -433,8 +434,12 @@ function renderSummary(r) {
   const warns = [];
   if (r.equity_available < 0)
     warns.push('Mortgage payoff exceeds net sale proceeds; there is no equity available to exchange, so the 1031 scenarios show $0.');
-  if (r.C.cash_boot > 0)
+  if (r.C.mortgage_boot > 0)
+    warns.push(`Partial does not replace the ${money(r.inputs.current_mortgage_payoff)} mortgage, so that debt relief is also taxed as boot. The Partial taxable gain (${money(r.C.recognized_gain)}) is larger than the cash taken out (${money(r.C.cash_boot)}).`);
+  else if (r.C.cash_boot > 0)
     warns.push('Partial exchange takes cash out; that cash is taxable this year as boot (recapture layer first).');
+  if (r.C.boot_cash_kept < 0)
+    warns.push('In the Partial scenario the tax exceeds the cash taken out, so the shortfall must be paid from other funds.');
   const wb = document.getElementById('warn-box');
   wb.innerHTML = warns.map((w) => `<div class="warn">⚠︎ ${w}</div>`).join('');
 }
@@ -487,10 +492,10 @@ function scenarioCard(scn, r) {
     position =
       detailRow('New Property Value', money(scn.replacement_value), { strong: true }) +
       detailRow('Equity Reinvested (deferred)', money(scn.equity_contributed)) +
-      detailRow('New Loan (replaces debt)', money(scn.new_loan)) +
+      detailRow(scn.new_loan > 0 ? 'New Loan (replaces debt)' : 'New Loan (none, mortgage paid off)', money(scn.new_loan)) +
       detailRow('Cash Taken Out', money(scn.cash_boot)) +
       detailRow('Less: Tax on Boot', money(-scn.total_tax)) +
-      detailRow('Boot Cash Kept', money(scn.boot_cash_kept)) +
+      detailRow(scn.boot_cash_kept < 0 ? 'Cash Shortfall (tax exceeds cash)' : 'Boot Cash Kept', money(scn.boot_cash_kept)) +
       detailRow('Annual NOI', money(scn.noi)) +
       detailRow('Annual Debt Service', money(scn.annual_debt_service)) +
       detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
@@ -515,7 +520,7 @@ function scenarioCard(scn, r) {
     ? `<div class="defer-banner">All gain deferred. $0 recognized this year (${money(scn.tax_deferred)} tax deferred vs. selling)</div>`
     : '';
 
-  return `<div class="scn-card ${meta.cls}">
+  return `<div class="scn-card">
     <div class="scn-head">
       <div><span class="scn-key">${scn.key}</span><span class="scn-name">${meta.name}</span></div>
       <span class="scn-tag">${meta.tag}</span>
@@ -523,6 +528,7 @@ function scenarioCard(scn, r) {
     <div class="scn-body">
       <div class="scn-grp">THE GAIN</div>
       ${detailRow('Realized Gain', money(r.realized_gain))}
+      ${scn.key === 'C' && scn.mortgage_boot > 0 ? detailRow('· Cash boot (cash taken)', money(scn.cash_boot)) + detailRow('· Mortgage boot (debt not replaced)', money(scn.mortgage_boot)) : ''}
       ${detailRow('Gain Recognized (taxed now)', money(scn.recognized_gain), { strong: true })}
       <div class="scn-grp">THE TAX STACK</div>
       ${deferBanner}
