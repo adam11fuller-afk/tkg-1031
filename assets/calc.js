@@ -2,7 +2,9 @@
    TKG 1031 Exchange & Financing Calculator — calculation engine
    Direct, verbatim port of WEBSITE BUILD SPEC §3 (verified June 2026).
    Pure functions, top-to-bottom, no circular references.
+   Wrapped in an IIFE so nothing leaks to global scope except window.Calc.
    ============================================================ */
+(function () {
 
 /* Excel PMT: payment per period. Returns a NEGATIVE number (cash out). */
 function PMT(rate, nper, pv) {
@@ -253,3 +255,4 @@ const FINANCING_DEFAULTS = {
 };
 
 window.Calc = { PMT, DEFAULTS, compute, financing, FINANCING_DEFAULTS };
+})();

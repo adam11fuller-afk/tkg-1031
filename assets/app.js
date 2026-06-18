@@ -1,6 +1,10 @@
 /* ============================================================
    TKG 1031 Calculator — UI (rendering, live recompute, formatting)
+   Wrapped in an IIFE: calc.js and app.js are both classic scripts sharing
+   ONE global lexical scope, so a top-level `const DEFAULTS` (etc.) in both
+   collides ("already declared") and silently kills app.js on real page load.
    ============================================================ */
+(function () {
 const { DEFAULTS, compute, financing, FINANCING_DEFAULTS } = window.Calc;
 
 /* ---------- state ---------- */
@@ -697,3 +701,4 @@ renderAssumptions();
 renderFinancing();
 renderSavedDeals();
 recompute();
+})();
