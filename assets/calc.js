@@ -23,16 +23,18 @@ const DEFAULTS = {
   // 2A-bis · Depreciation
   land_pct: 0.20,
   recovery_life: 39,
-  years_held: 10,
+  year_purchased: 2016, // years_held is derived (current year − this) in app.js
+  years_held: 10,       // fallback if year_purchased isn't synced (direct calc calls/tests)
   use_auto_depr: 1,
   manual_depreciation: 423900,
-  // 2A-ter · Exchange sizing & replacement
+  // 2A-ter · Exchange sizing — how much equity each strategy rolls
   partial_pct: 0.50,
   levered_pct: 1.25,
-  replacement_yield: 0.0625,
-  replacement_rate: 0.064,
-  replacement_term: 15,
-  replacement_amort: 30,
+  // Per-scenario replacement economics — product type (cap rate) and financing
+  // (loan rate / term / amort) can differ by strategy.
+  full_yield: 0.0625, full_rate: 0.064, full_term: 15, full_amort: 30,
+  partial_yield: 0.0625, partial_rate: 0.064, partial_term: 15, partial_amort: 30,
+  levered_yield: 0.0625, levered_rate: 0.064, levered_term: 15, levered_amort: 30,
   sec1245_depreciation: 0,
   // 2B · Rate / policy variables (verified June 2026)
   rate_recapture: 0.25,
@@ -60,13 +62,11 @@ function sizeScenario(pct, equity_available) {
   return { replacement_value, equity_contributed, new_loan, cash_boot };
 }
 
-/* Full / Levered hold economics (§3.6). */
-function holdEconomics(i, sz) {
-  const noi = sz.replacement_value * i.replacement_yield;
+/* Hold economics for one scenario (§3.6). p = { yield, rate, amort }. */
+function holdEconomics(p, sz) {
+  const noi = sz.replacement_value * p.yield;
   const annual_debt_service =
-    sz.new_loan > 0
-      ? PMT(i.replacement_rate / 12, i.replacement_amort * 12, sz.new_loan) * 12
-      : 0;
+    sz.new_loan > 0 ? PMT(p.rate / 12, p.amort * 12, sz.new_loan) * 12 : 0;
   const net_cash_flow = noi + annual_debt_service; // debt service is negative
   const cash_on_cash = sz.equity_contributed ? net_cash_flow / sz.equity_contributed : 0;
   return { noi, annual_debt_service, net_cash_flow, cash_on_cash };
@@ -142,7 +142,7 @@ function compute(i) {
   };
 
   // ---- Scenario B — Full 1031 ----
-  const ecoFull = holdEconomics(i, szFull);
+  const ecoFull = holdEconomics({ yield: i.full_yield, rate: i.full_rate, amort: i.full_amort }, szFull);
   const B = {
     key: 'B',
     reinvest_pct: 1.0,
@@ -160,7 +160,7 @@ function compute(i) {
   const recognized_boot = Math.min(realized_gain, szPartial.cash_boot);
   const taxC = tax(recognized_boot);
   const boot_cash_kept = szPartial.cash_boot - taxC.total;
-  const noiC = szPartial.replacement_value * i.replacement_yield;
+  const noiC = szPartial.replacement_value * i.partial_yield;
   const C = {
     key: 'C',
     reinvest_pct: i.partial_pct,
@@ -179,7 +179,7 @@ function compute(i) {
   };
 
   // ---- Scenario D — Levered 1031 (§3.6 + carryover-basis depreciation) ----
-  const ecoLev = holdEconomics(i, szLevered);
+  const ecoLev = holdEconomics({ yield: i.levered_yield, rate: i.levered_rate, amort: i.levered_amort }, szLevered);
   const substituted_basis = szLevered.replacement_value - realized_gain;
   const depreciable_basis = substituted_basis * (1 - i.land_pct);
   const carryover_dep_basis = adjusted_basis * (1 - i.land_pct);
@@ -226,6 +226,7 @@ function compute(i) {
     realized_gain,
     unrecap_1250,
     equity_available,
+    years_held: i.years_held,
     // scenarios
     A, B, C, D,
   };

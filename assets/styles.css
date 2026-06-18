@@ -200,6 +200,31 @@ table.summary thead th.win { background: #013b7d; }
 .mini:hover { background: #e2ebf5; }
 .mini.danger { color: var(--rust); border-color: #f0d2c4; background: #fff6ef; }
 
+/* ---------- Bridge (price → equity available) ---------- */
+.bridge { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 6px 0 18px; }
+.bridge-item { background: var(--white); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; min-width: 130px; display: flex; flex-direction: column; gap: 2px; }
+.bridge-item .bl { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; }
+.bridge-item .bv { font-size: 16px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.bridge-item.total { background: var(--total-fill); border-color: var(--orange); }
+.bridge-item.total .bv { color: var(--navy); }
+.bridge-op { display: flex; align-items: center; color: var(--muted); font-size: 18px; font-weight: 700; }
+
+/* ---------- Replacement matrix (per-scenario) ---------- */
+.mx-wrap { margin-top: 12px; }
+.mx-title { font-weight: 700; color: var(--navy); font-size: 13px; margin-bottom: 6px; }
+.mx-table { width: 100%; border-collapse: collapse; }
+.mx-table th { background: var(--navy); color: #fff; font-size: 11.5px; font-weight: 700; padding: 6px 8px; text-align: right; }
+.mx-table th:first-child { text-align: left; }
+.mx-table td { padding: 5px 6px; border-bottom: 1px solid #eef3f8; text-align: right; }
+.mx-table td.mx-lbl { text-align: left; font-weight: 600; color: var(--navy); white-space: nowrap; }
+.mx-in { width: 74px; text-align: right; font: inherit; background: var(--input-fill); border: 1px solid #b8d3ec; border-radius: 6px; padding: 5px 7px; color: var(--ink); }
+.mx-in:focus { outline: 2px solid var(--orange); outline-offset: 1px; }
+.mx-note { color: var(--muted); font-size: 11.5px; margin: 8px 0 0; }
+
+/* ---------- Chart titles + highlighted income row ---------- */
+.chart-title { font-weight: 700; color: var(--navy); font-size: 13px; margin: 2px 0 6px; }
+table.summary tr.hi td { background: #e7f3ee; font-weight: 700; }
+
 /* ---------- Print ---------- */
 .print-header, .print-footer { display: none; }
 @media print {
@@ -214,8 +239,11 @@ table.summary thead th.win { background: #013b7d; }
   body { background: #fff; font-size: 12px; }
   main { padding: 0; max-width: 100%; }
   .card, table.summary { box-shadow: none !important; }
-  .chart-card { break-inside: avoid; page-break-inside: avoid; }
-  table.summary tr.bottom td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  thead th, tr.section td, tr.howrow td, tr.bottom td, .sec-head { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  @page { margin: 12mm; }
+  .chart-card, .reading, .disclaimer { break-inside: avoid; page-break-inside: avoid; }
+  .chart-body svg { width: auto; max-height: 68mm; max-width: 100%; }
+  .chart-title { margin-top: 6px; }
+  .bridge-item, .bridge-item.total { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  table.summary tr.bottom td, table.summary tr.hi td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  thead th, tr.section td, tr.howrow td, tr.bottom td, .sec-head, .mx-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { size: landscape; margin: 10mm; }
 }

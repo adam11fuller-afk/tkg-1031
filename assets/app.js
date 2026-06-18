@@ -6,6 +6,7 @@
    ============================================================ */
 (function () {
 const { DEFAULTS, compute, financing, FINANCING_DEFAULTS } = window.Calc;
+const CURRENT_YEAR = new Date().getFullYear();
 
 /* ---------- state ---------- */
 const STORAGE_KEY = 'tkg_1031_inputs';
@@ -81,13 +82,14 @@ const SECTIONS = [
     fields: [
       ['land_pct', 'Land Value % (non-depreciable)', 'pct', 'Share of purchase price that is land. Land isn’t depreciable.'],
       ['recovery_life', 'Recovery Life (yrs)', 'num', '39 yr commercial, 27.5 yr residential.'],
-      ['years_held', 'Years Held', 'num', 'How long you’ve owned the property.'],
+      ['year_purchased', 'Year Purchased', 'num', 'The year you acquired the property. Years held is calculated from this.'],
       ['use_auto_depr', 'Use Auto Depreciation?', 'check', 'On = use the auto straight-line figure; off = use your manual number.'],
       ['manual_depreciation', 'Manual Accumulated Depreciation', 'money', 'Used only when Auto is switched off.'],
     ],
     calc: [
-      ['auto_depreciation', 'Auto Straight-Line Depreciation', money],
-      ['accumulated_depreciation', 'Accumulated Depreciation (used)', money],
+      ['years_held', 'Years Held (calculated)', 'yrs'],
+      ['auto_depreciation', 'Auto Straight-Line Depreciation'],
+      ['accumulated_depreciation', 'Accumulated Depreciation (used)'],
     ],
   },
   {
@@ -95,23 +97,20 @@ const SECTIONS = [
     desc: 'Fees and taxes to close the sale. Defaults are typical Massachusetts figures.',
     fields: [
       ['broker_pct', 'Broker Commission %', 'pct', 'Sale commission as % of price. Typically 5–6%.'],
-      ['transfer_rate', 'MA Transfer Tax ($ per $500)', 'num', 'MA deeds excise: $2.28 per $500 of price.', 0.01],
+      ['transfer_rate', 'MA Transfer Tax ($ per $500)', 'num', 'MA deeds excise: $2.28 per $500. Applies even in a 1031.', 0.01],
       ['attorney_costs', 'Attorney Closing Costs', 'money', 'Legal fees, recording, title.'],
-      ['fixed_fees', 'Fixed Fees (UCC, escrow, filing)', 'money', 'Misc. fixed closing fees.'],
+      ['fixed_fees', 'Fixed Fees (UCC, escrow, filing)', 'money', 'Flat closing fees — a dollar amount, not a %. $300–700 typical.'],
       ['prepay_penalty', 'Mortgage Prepayment Penalty', 'money', 'Early-payoff penalty, if any.'],
     ],
   },
   {
     num: '4', title: '1031 EXCHANGE SIZING & REPLACEMENT',
-    desc: 'How big each exchange is, and the new property’s economics. Sizing % is of the equity available to roll into a 1031.',
+    desc: 'How much equity each strategy rolls, and the new property’s economics. Cap rate and financing can differ by scenario since the replacement product may differ.',
     fields: [
       ['partial_pct', 'Partial — % of equity reinvested', 'pct', 'How much available equity rolls into the new property; the rest is taxable boot.'],
       ['levered_pct', 'Levered — % of equity (buy-up)', 'pct', 'Buy a property worth this multiple of available equity; the gap is financed.'],
-      ['replacement_yield', 'Replacement Cap Rate / Yield', 'pct', 'Going-in yield (NOI ÷ price) on the new property.', undefined, 2],
-      ['replacement_rate', 'New Loan Interest Rate', 'pct', 'Acquisition loan rate.', undefined, 2],
-      ['replacement_term', 'Loan Term (yrs) — balloon', 'num', 'Maturity. Does NOT drive the payment.'],
-      ['replacement_amort', 'Loan Amortization (yrs)', 'num', 'Drives the payment.'],
     ],
+    matrix: true,
   },
   {
     num: '5', title: 'TAX RATES (verified 2026 — rarely change)',
@@ -145,12 +144,6 @@ function toDisplay(key, type) {
   if (type === 'pct') return +(v * 100).toFixed(4);
   return v;
 }
-function fromInput(key, type, raw) {
-  if (type === 'check') { state[key] = raw ? 1 : 0; return; }
-  let n = parseFloat(String(raw).replace(/[^0-9.\-]/g, ''));
-  if (Number.isNaN(n)) n = 0;
-  state[key] = type === 'pct' ? n / 100 : n;
-}
 
 // build one input cell (shared by money/pct/num)
 function inputCell(key, type, value, step, dataAttr, label) {
@@ -163,6 +156,31 @@ function inputCell(key, type, value, step, dataAttr, label) {
   }
   const stp = step || (type === 'pct' ? 0.1 : 1);
   return `<div class="input-wrap">${pre}<input type="number" min="0" step="${stp}"${aria} ${dataAttr}="${key}" data-type="${type}" value="${value}"/>${post}</div>`;
+}
+
+/* per-scenario replacement matrix (cap rate / loan rate / term / amort) */
+function matrixCell(key, type) {
+  const value = type === 'pct' ? +(state[key] * 100).toFixed(4) : state[key];
+  const stp = type === 'pct' ? 0.05 : 1;
+  return `<input class="mx-in" type="number" min="0" step="${stp}" data-key="${key}" data-type="${type}" value="${value}" aria-label="${key}"/>`;
+}
+function replacementMatrix() {
+  const rows = [['Full 1031', 'full'], ['Partial 1031', 'partial'], ['Levered 1031', 'levered']];
+  const body = rows.map(([label, k]) => `<tr>
+      <td class="mx-lbl">${label}</td>
+      <td>${matrixCell(k + '_yield', 'pct')}</td>
+      <td>${matrixCell(k + '_rate', 'pct')}</td>
+      <td>${matrixCell(k + '_term', 'num')}</td>
+      <td>${matrixCell(k + '_amort', 'num')}</td>
+    </tr>`).join('');
+  return `<div class="mx-wrap">
+    <div class="mx-title">Replacement assumptions by scenario</div>
+    <table class="mx-table">
+      <thead><tr><th>Scenario</th><th>Cap Rate %</th><th>Loan Rate %</th><th>Term (yr)</th><th>Amort (yr)</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+    <p class="mx-note">Cap rate drives each scenario’s NOI. Loan rate / term / amort apply where a scenario carries new debt (Levered by default); Full &amp; Partial assume no new loan.</p>
+  </div>`;
 }
 
 /* ---------- render: Assumptions ---------- */
@@ -189,10 +207,11 @@ function renderAssumptions() {
           ${inputCell(key, type, value, step, 'data-key', label)}</div>`;
       }
     }
+    if (sec.matrix) html += replacementMatrix();
     if (sec.calc) {
       html += `<div style="height:6px"></div>`;
-      for (const [k, lbl] of sec.calc) {
-        html += `<div class="calc-row"><div class="lbl">${lbl}</div><div class="val" data-calc="${k}">—</div></div>`;
+      for (const [k, lbl, fmt] of sec.calc) {
+        html += `<div class="calc-row"><div class="lbl">${lbl}</div><div class="val" data-calc="${k}" data-fmt="${fmt || 'money'}">—</div></div>`;
       }
     }
     html += `</div></div>`;
@@ -256,7 +275,7 @@ function setFromInput(obj, key, type, raw) {
   obj[key] = type === 'pct' ? n / 100 : n;
 }
 
-/* ---------- chart: net proceeds vs. tax ---------- */
+/* ---------- chart 1: net proceeds vs. tax ---------- */
 function chartSVG(r) {
   const items = [
     { name: 'Sell & Pay', net: r.A.net_position, tax: r.A.total_tax },
@@ -264,27 +283,21 @@ function chartSVG(r) {
     { name: 'Partial 1031', net: r.C.net_position, tax: r.C.total_tax },
     { name: 'Levered 1031', net: r.D.net_position, tax: r.D.total_tax },
   ];
-  const maxNet = Math.max(...items.map((d) => d.net));
-  const W = 720, H = 300, padL = 12, padR = 12, padT = 34, padB = 48;
+  const W = 720, H = 280, padL = 12, padR = 12, padT = 30, padB = 44;
   const plotH = H - padT - padB;
   const baseY = padT + plotH;
   const max = Math.max(1, ...items.flatMap((d) => [Math.abs(d.net), Math.abs(d.tax)]));
   const groupW = (W - padL - padR) / items.length;
   const barW = 36, gap = 10;
   const NAVY = '#002855', ORANGE = '#ff7f32';
-
   let bars = '';
   items.forEach((d, i) => {
     const gc = padL + groupW * (i + 0.5);
     const startX = gc - (barW * 2 + gap) / 2;
     const netH = Math.max(0, (Math.max(0, d.net) / max) * plotH);
     const taxH = Math.max(0, (Math.max(0, d.tax) / max) * plotH);
-    const isWin = maxNet > 0 && Math.abs(d.net - maxNet) < 1;
-    // net bar
-    bars += `<rect x="${(startX).toFixed(1)}" y="${(baseY - netH).toFixed(1)}" width="${barW}" height="${netH.toFixed(1)}" rx="3" fill="${NAVY}"/>`;
+    bars += `<rect x="${startX.toFixed(1)}" y="${(baseY - netH).toFixed(1)}" width="${barW}" height="${netH.toFixed(1)}" rx="3" fill="${NAVY}"/>`;
     bars += `<text x="${(startX + barW / 2).toFixed(1)}" y="${(baseY - netH - 6).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${NAVY}">${shortMoney(d.net)}</text>`;
-    if (isWin) bars += `<text x="${(startX + barW / 2).toFixed(1)}" y="${(baseY - netH - 20).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="${NAVY}">★ BEST</text>`;
-    // tax bar
     const tx = startX + barW + gap;
     if (d.tax > 0) {
       bars += `<rect x="${tx.toFixed(1)}" y="${(baseY - taxH).toFixed(1)}" width="${barW}" height="${taxH.toFixed(1)}" rx="3" fill="${ORANGE}"/>`;
@@ -292,19 +305,50 @@ function chartSVG(r) {
     } else {
       bars += `<text x="${(tx + barW / 2).toFixed(1)}" y="${(baseY - 4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#9aa7b4">$0 tax</text>`;
     }
-    // group label
     bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 18).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${NAVY}">${d.name}</text>`;
   });
-
   const legend = `
-    <rect x="${W - 260}" y="8" width="12" height="12" rx="2" fill="${NAVY}"/>
-    <text x="${W - 244}" y="18" font-size="12" fill="#5a6b7b">Net Proceeds / Position</text>
-    <rect x="${W - 96}" y="8" width="12" height="12" rx="2" fill="${ORANGE}"/>
-    <text x="${W - 80}" y="18" font-size="12" fill="#5a6b7b">Tax Due</text>`;
-
+    <rect x="${W - 260}" y="6" width="12" height="12" rx="2" fill="${NAVY}"/>
+    <text x="${W - 244}" y="16" font-size="12" fill="#5a6b7b">Net Proceeds / Position</text>
+    <rect x="${W - 96}" y="6" width="12" height="12" rx="2" fill="${ORANGE}"/>
+    <text x="${W - 80}" y="16" font-size="12" fill="#5a6b7b">Tax Due</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Net proceeds versus tax by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Calibri,system-ui,sans-serif">
     <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>
     ${legend}
+    ${bars}
+  </svg>`;
+}
+
+/* ---------- chart 2: annual net income after debt ---------- */
+function chartIncomeSVG(r) {
+  const items = [
+    { name: 'Sell & Pay', v: 0, none: true },
+    { name: 'Full 1031', v: r.B.net_cash_flow },
+    { name: 'Partial 1031', v: r.C.net_cash_flow },
+    { name: 'Levered 1031', v: r.D.net_cash_flow },
+  ];
+  const W = 720, H = 210, padL = 12, padR = 12, padT = 24, padB = 40;
+  const plotH = H - padT - padB;
+  const baseY = padT + plotH;
+  const max = Math.max(1, ...items.map((d) => Math.abs(d.v)));
+  const groupW = (W - padL - padR) / items.length;
+  const barW = 46;
+  const TEAL = '#1d9e75', NAVY = '#002855';
+  let bars = '';
+  items.forEach((d) => {
+    const gc = padL + groupW * (items.indexOf(d) + 0.5);
+    const x = gc - barW / 2;
+    if (d.none) {
+      bars += `<text x="${gc.toFixed(1)}" y="${(baseY - 4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#9aa7b4">no rental income</text>`;
+    } else {
+      const h = Math.max(0, (Math.max(0, d.v) / max) * plotH);
+      bars += `<rect x="${x.toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="3" fill="${TEAL}"/>`;
+      bars += `<text x="${gc.toFixed(1)}" y="${(baseY - h - 6).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${TEAL}">${shortMoney(d.v)}</text>`;
+    }
+    bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 16).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${NAVY}">${d.name}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Annual net income after debt by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Calibri,system-ui,sans-serif">
+    <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>
     ${bars}
   </svg>`;
 }
@@ -313,24 +357,19 @@ function chartSVG(r) {
 function renderSummary(r) {
   const root = document.getElementById('view-summary');
   const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  const S = [r.A, r.B, r.C, r.D];
   const names = ['Sell &amp; Pay', 'Full 1031', 'Partial 1031', 'Levered 1031'];
   const how = ['Sell now, pay the full tax', 'Roll 100% into one property', 'Roll part, cash out the rest', 'Trade up using new debt'];
 
-  const maxPos = Math.max(...S.map((s) => s.net_position));
-  const win = S.map((s) => Math.abs(s.net_position - maxPos) < 1);
-
   const row = (label, vals, opts = {}) => {
-    const cls = [opts.section ? 'section' : '', opts.strong ? 'strong' : '', opts.subtle ? 'subtle' : '', opts.bottom ? 'bottom' : '', opts.how ? 'howrow' : ''].filter(Boolean).join(' ');
     if (opts.section) return `<tr class="section"><td colspan="5">${label}</td></tr>`;
-    let cells = `<td>${label}</td>`;
-    vals.forEach((v, idx) => {
-      const w = (opts.bottom && win[idx]) ? ' class="win"' : '';
-      cells += `<td${w}>${v}</td>`;
-    });
-    return `<tr class="${cls}">${cells}</tr>`;
+    const classes = [];
+    if (opts.strong) classes.push('strong');
+    if (opts.subtle) classes.push('subtle');
+    if (opts.bottom) classes.push('bottom');
+    if (opts.how) classes.push('howrow');
+    if (opts.hi) classes.push('hi');
+    return `<tr class="${classes.join(' ')}"><td>${label}</td>${vals.map((v) => `<td>${v}</td>`).join('')}</tr>`;
   };
-  const ret = (s) => s.return_metric === null || s.return_metric === undefined ? '—' : pct(s.return_metric);
 
   let html = `
   <div class="print-header">
@@ -341,15 +380,25 @@ function renderSummary(r) {
     <button class="btn-print no-print" onclick="window.print()" title="Print or save the client summary as PDF">⎙ Print / Save PDF</button>
     <h2 class="sum-title">Client Summary</h2>
     <p class="sum-sub">1031 Exchange &amp; Financing Analysis</p>
-    <p class="sum-note">Four ways to handle this sale. Estimates only — confirm with your CPA &amp; attorney.</p>
+    <p class="sum-note">Estimates only — confirm with your CPA &amp; attorney.</p>
   </div>
+
+  <div class="bridge">
+    <div class="bridge-item"><span class="bl">Sale Price</span><span class="bv">${money(r.inputs.sale_price)}</span></div>
+    <div class="bridge-op">−</div>
+    <div class="bridge-item"><span class="bl">Selling Costs</span><span class="bv">${money(r.transaction_costs)}</span></div>
+    <div class="bridge-op">−</div>
+    <div class="bridge-item"><span class="bl">Mortgage Payoff</span><span class="bv">${money(r.inputs.current_mortgage_payoff)}</span></div>
+    <div class="bridge-op">=</div>
+    <div class="bridge-item total"><span class="bl">Equity Available to Exchange</span><span class="bv">${money(r.equity_available)}</span></div>
+  </div>
+
   <table class="summary">
-    <thead><tr><th>Scenario</th>${names.map((n, i) => `<th${win[i] ? ' class="win"' : ''}>${n}${win[i] ? '<span class="win-tag">BEST</span>' : ''}</th>`).join('')}</tr></thead>
+    <thead><tr><th>Scenario</th>${names.map((n) => `<th>${n}</th>`).join('')}</tr></thead>
     <tbody>
-      ${row('How it works', how.map((h) => h), { how: true })}
+      ${row('How it works', how, { how: true })}
 
       ${row('THE EXCHANGE MATH', null, { section: true })}
-      ${row('Equity Available to Exchange', S.map(() => money(r.equity_available)))}
       ${row('Reinvestment / Buy-Up %', ['—', pct(r.B.reinvest_pct), pct(r.C.reinvest_pct), pct(r.D.reinvest_pct)])}
       ${row('New Property Value', ['—', money(r.B.replacement_value), money(r.C.replacement_value), money(r.D.replacement_value)], { strong: true })}
       ${row('Equity Put Into Property', ['—', money(r.B.equity_contributed), money(r.C.equity_contributed), money(r.D.equity_contributed)])}
@@ -357,22 +406,26 @@ function renderSummary(r) {
       ${row('Cash Boot Taken (taxed)', ['—', '—', money(r.C.cash_boot), '—'])}
 
       ${row('THE TAX', null, { section: true })}
-      ${row('Realized Gain', S.map(() => money(r.realized_gain)))}
+      ${row('Realized Gain', [money(r.realized_gain), money(r.realized_gain), money(r.realized_gain), money(r.realized_gain)])}
       ${row('Gain Recognized (taxed now)', [money(r.A.recognized_gain), '—', money(r.C.recognized_gain), '—'])}
       ${row('Total Tax Due This Year', [money(r.A.total_tax), '—', money(r.C.total_tax), '—'], { strong: true, subtle: true })}
       ${row('Tax Deferred vs. Selling', ['—', money(r.B.tax_deferred), money(r.C.tax_deferred), money(r.D.tax_deferred)])}
 
       ${row('THE NEW INCOME', null, { section: true })}
       ${row('Annual NOI (new property)', ['—', money(r.B.noi), money(r.C.noi), money(r.D.noi)])}
-      ${row('Net Cash Flow After Debt', ['—', money(r.B.net_cash_flow), money(r.C.net_cash_flow), money(r.D.net_cash_flow)])}
-      ${row('Cash-on-Cash / Return on Equity', ['—', ret(r.B), ret(r.C), ret(r.D)])}
+      ${row('Net Cash Flow After Debt', ['—', money(r.B.net_cash_flow), money(r.C.net_cash_flow), money(r.D.net_cash_flow)], { hi: true })}
 
-      ${row('BOTTOM LINE: Net Proceeds / Position', [money(r.A.net_position), money(r.B.net_position), money(r.C.net_position), money(r.D.net_position)], { bottom: true })}
+      ${row('Net Proceeds / Position', [money(r.A.net_position), money(r.B.net_position), money(r.C.net_position), money(r.D.net_position)], { bottom: true })}
     </tbody>
   </table>
 
-  <div class="card chart-card"><div class="sec-head">AT A GLANCE — NET PROCEEDS vs. TAX</div>
-    <div class="body chart-body">${chartSVG(r)}</div>
+  <div class="card chart-card"><div class="sec-head">AT A GLANCE</div>
+    <div class="body chart-body">
+      <div class="chart-title">Net proceeds vs. tax due</div>
+      ${chartSVG(r)}
+      <div class="chart-title" style="margin-top:16px">Annual net income after debt</div>
+      ${chartIncomeSVG(r)}
+    </div>
   </div>
 
   <div id="warn-box" class="warnings"></div>
@@ -433,7 +486,6 @@ function scenarioCard(scn, r) {
     D: { name: 'Leveraged §1031', tag: 'Trade up with new debt', cls: 'scn-d' },
   }[scn.key];
   const deferred = scn.key === 'B' || scn.key === 'D';
-  const win = scn.net_position >= Math.max(r.A.net_position, r.B.net_position, r.C.net_position, r.D.net_position) - 1;
 
   let position = '';
   if (scn.key === 'A') {
@@ -448,8 +500,7 @@ function scenarioCard(scn, r) {
       detailRow('Equity Invested', money(scn.equity_contributed)) +
       detailRow('New Loan', money(scn.new_loan)) +
       detailRow('Annual NOI', money(scn.noi)) +
-      detailRow('Net Cash Flow', money(scn.net_cash_flow)) +
-      detailRow('Cash-on-Cash', pct(scn.cash_on_cash)) +
+      detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
       detailRow('Equity Position', money(scn.net_position), { hero: true });
   } else if (scn.key === 'C') {
     position =
@@ -467,7 +518,7 @@ function scenarioCard(scn, r) {
       detailRow('New Loan (buy-up gap)', money(scn.new_loan)) +
       detailRow('Annual NOI', money(scn.noi)) +
       detailRow('Annual Debt Service', money(scn.annual_debt_service)) +
-      detailRow('Net Cash Flow', money(scn.net_cash_flow)) +
+      detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
       `<div class="d-sub">DEPRECIATION SHIELD (§1031(d) carryover basis)</div>` +
       detailRow('Annual Depreciation', money(scn.annual_depreciation)) +
       detailRow('Annual Tax Shield', money(scn.annual_tax_shield)) +
@@ -480,11 +531,10 @@ function scenarioCard(scn, r) {
     ? `<div class="defer-banner">All gain deferred — $0 recognized this year (${money(scn.tax_deferred)} tax deferred vs. selling)</div>`
     : '';
 
-  return `<div class="scn-card ${meta.cls}${win ? ' is-win' : ''}">
+  return `<div class="scn-card ${meta.cls}">
     <div class="scn-head">
       <div><span class="scn-key">${scn.key}</span><span class="scn-name">${meta.name}</span></div>
       <span class="scn-tag">${meta.tag}</span>
-      ${win ? '<span class="win-tag">BEST</span>' : ''}
     </div>
     <div class="scn-body">
       <div class="scn-grp">THE GAIN</div>
@@ -610,11 +660,10 @@ function renderSavedDeals() {
   const list = deals.length
     ? deals.map((d) => {
         const r = compute({ ...DEFAULTS, ...d.inputs });
-        const best = bestLabel(r);
         return `<div class="deal-row">
           <label class="deal-pick"><input type="checkbox" data-cmp="${d.id}" aria-label="Compare ${escHtml(d.name)}" ${compareSel.has(d.id) ? 'checked' : ''}/></label>
           <div class="deal-meta"><div class="deal-name">${escHtml(d.name)}</div>
-            <div class="deal-sub">Sale ${money(r.inputs.sale_price)} · Best: ${best.name} ${money(best.net)}</div></div>
+            <div class="deal-sub">Sale ${money(r.inputs.sale_price)} · Equity available ${money(r.equity_available)}</div></div>
           <div class="deal-actions"><button class="mini" data-load="${d.id}">Load</button><button class="mini danger" data-del="${d.id}">Delete</button></div>
         </div>`;
       }).join('')
@@ -663,15 +712,21 @@ function renderCompare() {
       ${rrow('Partial 1031', (r) => money(r.C.net_position))}
       ${rrow('Levered 1031', (r) => money(r.D.net_position))}
       ${rrow('Max Tax Deferred', (r) => money(Math.max(r.B.tax_deferred, r.C.tax_deferred, r.D.tax_deferred)))}
-      ${rrow('Best Option', (r) => bestLabel(r).name, 'strong')}
     </tbody></table></div></div>`;
 }
 
 /* ---------- recompute (assumptions + summary + scenarios) ---------- */
 function recompute() {
+  state.years_held = Math.max(0, CURRENT_YEAR - (state.year_purchased || CURRENT_YEAR));
   const r = compute(state);
   document.querySelectorAll('[data-calc]').forEach((el) => {
-    el.textContent = moneyZero(r[el.dataset.calc]);
+    const v = r[el.dataset.calc];
+    if (el.dataset.fmt === 'yrs') {
+      const y = Math.round(v || 0);
+      el.textContent = y + (y === 1 ? ' yr' : ' yrs');
+    } else {
+      el.textContent = moneyZero(v);
+    }
   });
   renderSummary(r);
   renderScenarios(r);
