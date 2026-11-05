@@ -5,11 +5,11 @@
    collides ("already declared") and silently kills app.js on real page load.
    ============================================================ */
 (function () {
-const { DEFAULTS, compute, financing, FINANCING_DEFAULTS } = window.Calc;
+const { DEFAULTS, compute, financing, FINANCING_DEFAULTS, taxAtIncome, INCOME_PROFILES } = window.Calc;
 const CURRENT_YEAR = new Date().getFullYear();
 
 /* ---------- state ---------- */
-const STORAGE_KEY = 'tkg_1031_inputs';
+const STORAGE_KEY = 'tkg_1031_inputs_v2';   // v2: income profile, B2 scenario, bracket thresholds
 const FIN_KEY = 'tkg_1031_financing';
 let state = loadState(STORAGE_KEY, DEFAULTS);
 let finState = loadState(FIN_KEY, FINANCING_DEFAULTS);
@@ -29,7 +29,7 @@ function saveState() {
 }
 
 /* ---------- formatting ---------- */
-// currency: $#,##0 — parens for negatives, "-" for zero/null
+// on-screen currency: $#,##0 — parens for negatives, em-dash for zero/null
 function money(v) {
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
   const r = Math.round(v);
@@ -37,9 +37,17 @@ function money(v) {
   const s = '$' + Math.abs(r).toLocaleString('en-US');
   return r < 0 ? '(' + s + ')' : s;
 }
-function moneyZero(v) { // like money but shows $0 instead of dash (for inputs echo)
+function moneyZero(v) { // like money but shows $0 instead of dash (for input echoes)
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
   const r = Math.round(v);
+  const s = '$' + Math.abs(r).toLocaleString('en-US');
+  return r < 0 ? '(' + s + ')' : s;
+}
+// print accounting format: $#,##0, parens for negatives, en-dash "–" for zero
+function acct(v) {
+  if (v === null || v === undefined || Number.isNaN(v)) return '–';
+  const r = Math.round(v);
+  if (r === 0) return '–';
   const s = '$' + Math.abs(r).toLocaleString('en-US');
   return r < 0 ? '(' + s + ')' : s;
 }
@@ -47,12 +55,10 @@ function pct(v, dp = 1) {
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
   return (v * 100).toFixed(dp) + '%';
 }
-// comma string for money <input> values (no $ — that's a prefix span)
 function moneyInputStr(n) {
   const r = Math.round(n || 0);
   return r.toLocaleString('en-US');
 }
-// short labels for the chart: $1.55M / $551K / $0
 function shortMoney(v) {
   if (!v) return '$0';
   const a = Math.abs(v);
@@ -62,96 +68,137 @@ function shortMoney(v) {
   else s = '$' + Math.round(a);
   return v < 0 ? '(' + s + ')' : s;
 }
+function escHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
-/* ---------- field definitions (mirror the workbook Assumptions tab) ---------- */
-// type: money | pct | num | check ; pct values edited as whole percents (20 = 20%)
+/* ---------- field definitions ---------- */
+// type: money | pct | num | check | text | select
 const SECTIONS = [
+  {
+    num: '', title: 'REPORT HEADER',
+    desc: 'Who the report is for. These print on the client report; they do not affect the math.',
+    fields: [
+      ['prepared_for', 'Prepared For (client name)', 'text', 'Appears in the report header.'],
+      ['property_address', 'Property Address', 'text', 'The relinquished property.'],
+    ],
+  },
   {
     num: '1', title: 'THE PROPERTY SALE',
     desc: 'The basics of the property you’re selling. Start here.',
     fields: [
       ['sale_price', 'Estimated Sale Price', 'money', 'What you expect to sell the relinquished property for.'],
       ['original_purchase_price', 'Original Purchase Price', 'money', 'What you originally paid for it.'],
-      ['capital_improvements', 'Capital Improvements', 'money', 'Capitalized improvements added to your basis.'],
       ['current_mortgage_payoff', 'Current Mortgage Payoff', 'money', 'Remaining loan balance paid off at closing.'],
     ],
   },
   {
-    num: '2', title: 'DEPRECIATION',
-    desc: 'Auto-calculate straight-line depreciation, or type your own figure. Toggle controls which is used.',
+    num: '2', title: 'CAPITAL IMPROVEMENTS',
+    desc: 'Capitalized improvements added to basis, entered as a lump sum with the year placed in service. They depreciate on their own clock from that year.',
     fields: [
-      ['land_pct', 'Land Value % (non-depreciable)', 'pct', 'Share of purchase price that is land. Land isn’t depreciable.'],
+      ['capital_improvements', 'Capital Improvements (lump sum)', 'money', 'Total capitalized improvements. Not the assessed building value.'],
+      ['improvement_year', 'Year Placed In Service', 'num', 'Approximate year the improvements were made.'],
+    ],
+    calc: [
+      ['improvement_years_held', 'Improvement Years Held (calculated)', 'yrs'],
+    ],
+  },
+  {
+    num: '3', title: 'DEPRECIATION',
+    desc: 'Auto straight-line, or type your own accumulated figure (a manual number overrides auto). Enter the assessor’s land/building split for a precise land %, or leave both blank for the 20% default.',
+    fields: [
+      ['assessed_land', 'Assessed Land Value (optional)', 'money', 'From the assessor. Used only to split land vs. building.'],
+      ['assessed_building', 'Assessed Building Value (optional)', 'money', 'From the assessor. Never treated as capital improvements.'],
+      ['land_pct', 'Land Value % (fallback)', 'pct', 'Used when no assessor split is entered. Land isn’t depreciable.'],
       ['recovery_life', 'Recovery Life (yrs)', 'num', '39 yr commercial, 27.5 yr residential.'],
-      ['year_purchased', 'Year Purchased', 'num', 'The year you acquired the property. Years held is calculated from this.'],
-      ['use_auto_depr', 'Use Auto Depreciation?', 'check', 'On = use the auto straight-line figure; off = use your manual number.'],
-      ['manual_depreciation', 'Manual Accumulated Depreciation', 'money', 'Used only when Auto is switched off.'],
+      ['year_purchased', 'Year Purchased', 'num', 'Years held is calculated from this. Past the recovery life ⇒ fully depreciated.'],
+      ['use_auto_depr', 'Use Auto Depreciation?', 'check', 'On = auto straight-line. Typing a manual number below turns this off.'],
+      ['manual_depreciation', 'Manual Accumulated Depreciation', 'money', 'A manual override wins when entered.'],
     ],
     calc: [
       ['years_held', 'Years Held (calculated)', 'yrs'],
+      ['land_pct_eff', 'Land % Used', 'pctlabel'],
       ['auto_depreciation', 'Auto Straight-Line Depreciation'],
       ['accumulated_depreciation', 'Accumulated Depreciation (used)'],
     ],
   },
   {
-    num: '3', title: 'SELLING COSTS',
+    num: '4', title: 'CLIENT INCOME PROFILE',
+    desc: 'Set a reasonable income assumption without asking the client. The profile sets the “other taxable income” that stacks beneath the gain; the override lets a CPA dial it in.',
+    incomeProfile: true,
+    fields: [
+      ['filing_status', 'Filing Status', 'select', 'Thresholds below are the married-filing-jointly figures.',
+        [['mfj', 'Married filing jointly'], ['single', 'Single']]],
+      ['other_taxable_income', 'Other Taxable Income (override)', 'money', 'The client’s other taxable income. Pick a profile above, or type a figure.'],
+    ],
+  },
+  {
+    num: '5', title: 'SELLING COSTS',
     desc: 'Fees and taxes to close the sale. Defaults are typical Massachusetts figures.',
     fields: [
       ['broker_pct', 'Broker Commission %', 'pct', 'Sale commission as % of price. Typically 5–6%.'],
       ['transfer_rate', 'MA Transfer Tax ($ per $500)', 'num', 'MA deeds excise: $2.28 per $500. Applies even in a 1031.', 0.01],
       ['attorney_costs', 'Attorney Closing Costs', 'money', 'Legal fees, recording, title.'],
-      ['fixed_fees', 'Fixed Fees (UCC, escrow, filing)', 'money', 'Flat closing fees, a dollar amount, not a %. $300–700 typical.'],
+      ['fixed_fees', 'Fixed Fees (UCC, escrow, filing)', 'money', 'Flat closing fees, a dollar amount, not a %.'],
       ['prepay_penalty', 'Mortgage Prepayment Penalty', 'money', 'Early-payoff penalty, if any.'],
     ],
   },
   {
-    num: '4', title: '1031 EXCHANGE SIZING & REPLACEMENT',
-    desc: 'How much equity each strategy rolls, and the new property’s economics. Cap rate and financing can differ by scenario since the replacement product may differ.',
+    num: '6', title: '1031 EXCHANGE SIZING & SCENARIOS',
+    desc: 'How much equity each strategy rolls, plus the replacement economics. Rename any scenario, toggle it on/off, and set its cap rate and financing. B and B2 are two full exchanges so you can compare a DST against a NNN.',
     fields: [
-      ['partial_pct', 'Partial: % of equity reinvested', 'pct', 'Reinvest this share of your equity; the rest is taken as cash and taxed.'],
-      ['partial_replace_debt', 'Partial: replace the mortgage with new debt?', 'check', 'On = take a new loan to replace the debt, so only the cash you pull is taxed. Off = pay off the mortgage and take cash; the debt relief is also taxed as boot.'],
-      ['levered_pct', 'Levered buy-up (× net sale price)', 'pct', 'Buy a property worth this multiple of your net sale price; your equity stays in and the rest is financed.'],
+      ['partial_pct', 'Partial: % of equity reinvested', 'pct', 'Reinvest this share of equity; the rest is cash boot, taxed.'],
+      ['partial_replace_debt', 'Partial: replace the mortgage with new debt?', 'check', 'On = new loan replaces the debt (only the cash you pull is taxed). Off = pay off the mortgage; the debt relief is also taxed as boot.'],
+      ['levered_pct', 'Levered buy-up (× net sale price)', 'pct', 'Buy a property worth this multiple of your net sale price; the rest is financed.'],
     ],
     matrix: true,
   },
   {
-    num: '5', title: 'TAX RATES (verified 2026)',
-    desc: 'Tax-law constants. Pre-filled and verified June 2026. A CPA can override; a normal user never touches these.',
+    num: '7', title: 'TAX RATES & THRESHOLDS (2026 MFJ)',
+    desc: 'Tax-law constants. Pre-filled and verified for 2026. A CPA can override every rate and bracket; a normal user never touches these.',
     collapsible: true, collapsed: true,
     fields: [
-      ['rate_ltcg', 'Federal LTCG rate', 'pct', 'IRC §1(h).'],
-      ['rate_recapture', 'Depreciation Recapture rate', 'pct', 'Unrecaptured §1250, up to 25%.'],
+      ['rate_recapture', 'Depreciation Recapture rate (§1250)', 'pct', 'Unrecaptured §1250 gain, up to 25%.'],
+      ['rate_ltcg_0', 'Federal LTCG — 0% bracket rate', 'pct', 'IRC §1(h).'],
+      ['rate_ltcg_15', 'Federal LTCG — 15% bracket rate', 'pct', 'IRC §1(h).'],
+      ['rate_ltcg', 'Federal LTCG — 20% bracket rate', 'pct', 'IRC §1(h), top bracket.'],
+      ['ltcg_bkt_0', 'LTCG 0%→15% breakpoint', 'money', '2026 MFJ taxable-income breakpoint.'],
+      ['ltcg_bkt_1', 'LTCG 15%→20% breakpoint', 'money', '2026 MFJ taxable-income breakpoint.'],
       ['rate_niit', 'NIIT rate', 'pct', 'Net Investment Income Tax, IRC §1411.'],
-      ['ma_rate', 'MA Capital Gains rate', 'pct', 'MA flat 5.0%.'],
+      ['niit_threshold', 'NIIT MAGI threshold', 'money', '$250k MFJ. NIIT applies to the lesser of gain or MAGI over this.'],
+      ['ma_rate', 'MA Income rate', 'pct', 'MA flat 5.0%.'],
       ['ma_surtax_rate', 'MA 4% Surtax rate', 'pct', 'M.G.L. c.62 §4(d).'],
       ['ma_surtax_threshold', 'MA Surtax Threshold', 'money', '2026 indexed, per return.'],
       ['ordinary_rate', 'Ordinary Income rate', 'pct', 'Top bracket; §1245 recapture.'],
     ],
   },
   {
-    num: '6', title: 'ADVANCED: COST SEGREGATION',
+    num: '8', title: 'ADVANCED: COST SEGREGATION',
     desc: 'Only if cost-seg was done. Leave at defaults otherwise.',
     collapsible: true, collapsed: true,
     fields: [
       ['sec1245_depreciation', '§1245 / Cost-Seg Depreciation', 'money', 'Personal-property components recaptured at ordinary rate.'],
-      ['other_taxable_income', 'Other Taxable Income', 'money', 'Your other MA income; sets the surtax base.'],
       ['cost_seg_flag', 'Recapture §1245 at ordinary rate?', 'check', 'On = add §1245 recapture to the tax stack.'],
     ],
   },
 ];
 
-/* ---------- input <-> state conversion ---------- */
+/* ---------- input builders ---------- */
 function toDisplay(key, type) {
   const v = state[key];
   if (type === 'pct') return +(v * 100).toFixed(4);
   return v;
 }
-
-// build one input cell (shared by money/pct/num)
-function inputCell(key, type, value, step, dataAttr, label) {
+function inputCell(key, type, value, step, dataAttr, label, opts) {
   const unit = type === 'money' ? ' (dollars)' : type === 'pct' ? ' (percent)' : '';
-  const aria = label ? ` id="f-${key}" aria-label="${label.replace(/"/g, '')}${unit}"` : '';
+  const aria = label ? ` aria-label="${label.replace(/"/g, '')}${unit}"` : '';
   const pre = type === 'money' ? '<span class="pre">$</span>' : '';
   const post = type === 'pct' ? '<span class="post">%</span>' : '';
+  if (type === 'text') {
+    return `<div class="input-wrap"><input type="text"${aria} ${dataAttr}="${key}" data-type="text" value="${escHtml(value || '')}"/></div>`;
+  }
+  if (type === 'select') {
+    const o = (opts || []).map(([v, l]) => `<option value="${v}" ${String(value) === String(v) ? 'selected' : ''}>${l}</option>`).join('');
+    return `<div class="input-wrap"><select${aria} ${dataAttr}="${key}" data-type="select">${o}</select></div>`;
+  }
   if (type === 'money') {
     return `<div class="input-wrap">${pre}<input type="text" inputmode="numeric"${aria} ${dataAttr}="${key}" data-type="money" value="${moneyInputStr(value)}"/>${post}</div>`;
   }
@@ -159,29 +206,45 @@ function inputCell(key, type, value, step, dataAttr, label) {
   return `<div class="input-wrap">${pre}<input type="number" min="0" step="${stp}"${aria} ${dataAttr}="${key}" data-type="${type}" value="${value}"/>${post}</div>`;
 }
 
-/* per-scenario replacement matrix (cap rate / loan rate / term / amort) */
-function matrixCell(key, type) {
+/* per-scenario matrix: editable label, show toggle, cap rate, loan rate, term, amort */
+function mxCell(key, type) {
   const value = type === 'pct' ? +(state[key] * 100).toFixed(4) : state[key];
   const stp = type === 'pct' ? 0.05 : 1;
   return `<input class="mx-in" type="number" min="0" step="${stp}" data-key="${key}" data-type="${type}" value="${value}" aria-label="${key}"/>`;
 }
 function replacementMatrix() {
-  const rows = [['Full 1031', 'full'], ['Partial 1031', 'partial'], ['Levered 1031', 'levered']];
-  const body = rows.map(([label, k]) => `<tr>
-      <td class="mx-lbl">${label}</td>
-      <td>${matrixCell(k + '_yield', 'pct')}</td>
-      <td>${matrixCell(k + '_rate', 'pct')}</td>
-      <td>${matrixCell(k + '_term', 'num')}</td>
-      <td>${matrixCell(k + '_amort', 'num')}</td>
-    </tr>`).join('');
+  const rows = [['B', 'Full exchange A'], ['B2', 'Full exchange B'], ['C', 'Partial'], ['D', 'Levered']];
+  const body = rows.map(([k, kind]) => {
+    const lk = k.toLowerCase();
+    return `<tr>
+      <td class="mx-chk"><input type="checkbox" data-key="${lk}_show" data-type="check" ${state[lk + '_show'] ? 'checked' : ''} aria-label="Show ${kind}"/></td>
+      <td class="mx-lbl"><input class="mx-label" type="text" data-key="${lk}_label" data-type="text" value="${escHtml(state[lk + '_label'] || '')}" aria-label="${kind} label"/></td>
+      <td>${mxCell(lk + '_yield', 'pct')}</td>
+      <td>${mxCell(lk + '_rate', 'pct')}</td>
+      <td>${mxCell(lk + '_term', 'num')}</td>
+      <td>${mxCell(lk + '_amort', 'num')}</td>
+    </tr>`;
+  }).join('');
   return `<div class="mx-wrap">
-    <div class="mx-title">Replacement assumptions by scenario</div>
+    <div class="mx-title">Scenarios — label, show, and replacement economics</div>
     <table class="mx-table">
-      <thead><tr><th>Scenario</th><th>Cap Rate %</th><th>Loan Rate %</th><th>Term (yr)</th><th>Amort (yr)</th></tr></thead>
+      <thead><tr><th class="mx-chk">Show</th><th>Label</th><th>Cap Rate %</th><th>Loan Rate %</th><th>Term (yr)</th><th>Amort (yr)</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
-    <p class="mx-note">Cap rate drives each scenario’s NOI. Loan rate / term / amort apply to each scenario’s new loan. Every exchange replaces (or adds) debt, so all three carry financing.</p>
+    <p class="mx-note">B and B2 are both full exchanges (replace the full net value); only the cap rate differs, so you can compare a DST (lower, stabilized yield) against an Absolute NNN (higher yield). Cap rate drives NOI; loan rate/term/amort apply to any new debt.</p>
   </div>`;
+}
+
+/* income-profile chips */
+function incomeChips() {
+  const chips = [['moderate', 'Moderate', 100000], ['typical', 'Typical', 250000], ['high', 'High', 600000]];
+  const cur = Math.round(state.other_taxable_income || 0);
+  const html = chips.map(([k, label, val]) => {
+    const active = (cur === val);
+    return `<button type="button" class="ip-chip${active ? ' active' : ''}" data-profile="${k}" data-val="${val}">${label}<span class="ip-amt">${money(val)}</span></button>`;
+  }).join('');
+  const customActive = ![100000, 250000, 600000].includes(cur);
+  return `<div class="ip-row">${html}<button type="button" class="ip-chip${customActive ? ' active' : ''}" data-profile="custom">Custom<span class="ip-amt">${customActive ? money(cur) : 'type below'}</span></button></div>`;
 }
 
 /* ---------- render: Assumptions ---------- */
@@ -192,20 +255,22 @@ function renderAssumptions() {
     const cls = 'card' + (sec.collapsible ? ' collapsible' : '') + (sec.collapsed ? ' collapsed' : '');
     html += `<div class="${cls}" data-sec="${sec.num}">
       <div class="sec-head" ${sec.collapsible ? `data-toggle="1" role="button" tabindex="0" aria-expanded="${sec.collapsed ? 'false' : 'true'}"` : ''}>
-        <span><span class="num">${sec.num} ·</span>${sec.title}</span>
+        <span>${sec.num ? `<span class="num">${sec.num} ·</span>` : ''}${sec.title}</span>
         ${sec.collapsible ? '<span class="chevron">▾</span>' : ''}
       </div>
       <div class="body">
         <p class="sec-desc">${sec.desc}</p>`;
+    if (sec.incomeProfile) html += incomeChips();
     for (const f of sec.fields) {
-      const [key, label, type, help, step] = f;
+      const [key, label, type, help, opts] = f;
       if (type === 'check') {
         html += `<div class="field"><div class="lbl">${label}<span class="help">${help}</span></div>
           <label class="switch"><input type="checkbox" aria-label="${label}" data-key="${key}" data-type="check" ${state[key] ? 'checked' : ''}/> <span>${state[key] ? 'On' : 'Off'}</span></label></div>`;
       } else {
         const value = type === 'pct' ? toDisplay(key, type) : state[key];
+        const step = f[4] && type !== 'select' ? f[4] : undefined;
         html += `<div class="field"><div class="lbl">${label}<span class="help">${help}</span></div>
-          ${inputCell(key, type, value, step, 'data-key', label)}</div>`;
+          ${inputCell(key, type, value, step, 'data-key', label, opts)}</div>`;
       }
     }
     if (sec.matrix) html += replacementMatrix();
@@ -218,7 +283,6 @@ function renderAssumptions() {
     html += `</div></div>`;
   }
 
-  // Calculated read-out card (transparency)
   html += `<div class="card calc-card"><div class="sec-head">CALCULATED: THE TAXABLE GAIN</div>
     <div class="body">
       <div class="calc-row"><div class="lbl">Total Selling Costs</div><div class="val" data-calc="transaction_costs">—</div></div>
@@ -230,6 +294,14 @@ function renderAssumptions() {
 
   root.innerHTML = html;
   wireInputs(root, 'data-key', () => recompute());
+  // income profile chips
+  root.querySelectorAll('.ip-chip').forEach((b) => b.addEventListener('click', () => {
+    const p = b.dataset.profile;
+    state.income_profile = p;
+    if (p !== 'custom' && b.dataset.val) state.other_taxable_income = +b.dataset.val;
+    renderAssumptions();
+    recompute();
+  }));
   root.querySelectorAll('[data-toggle]').forEach((el) => {
     const toggle = () => {
       const collapsed = el.closest('.card').classList.toggle('collapsed');
@@ -242,29 +314,36 @@ function renderAssumptions() {
   });
 }
 
-/* shared input wiring: live recompute, comma reformat for money on blur */
 function wireInputs(root, attr, onChange) {
   const stateObj = attr === 'data-key' ? state : finState;
-  root.querySelectorAll('input').forEach((el) => {
+  root.querySelectorAll('input, select').forEach((el) => {
     const type = el.dataset.type;
     const key = el.getAttribute(attr);
     if (!key) return;
-    el.addEventListener('input', () => {
+    const handler = () => {
       if (type === 'check') {
         stateObj[key] = el.checked ? 1 : 0;
         if (el.nextElementSibling) el.nextElementSibling.textContent = el.checked ? 'On' : 'Off';
+      } else if (type === 'text') {
+        stateObj[key] = el.value;
+      } else if (type === 'select') {
+        stateObj[key] = el.value;
       } else {
-        // Ignore incomplete intermediate states ('', '-', '.', '-.') so the model
-        // doesn't flip to 0 mid-edit; it commits on the next valid keystroke.
         if (/^-?\.?$/.test(el.value)) return;
         setFromInput(stateObj, key, type, el.value);
+        // typing a manual accumulated depreciation turns off auto
+        if (key === 'manual_depreciation' && stateObj === state) state.use_auto_depr = 0;
+        // typing an income override marks the profile custom
+        if (key === 'other_taxable_income' && stateObj === state) state.income_profile = 'custom';
       }
       onChange();
-    });
+    };
+    el.addEventListener('input', handler);
+    if (el.tagName === 'SELECT') el.addEventListener('change', handler);
     if (type === 'money') {
       el.addEventListener('focus', () => el.select());
       el.addEventListener('blur', () => {
-        stateObj[key] = Math.round(stateObj[key] || 0); // keep stored value == displayed value
+        stateObj[key] = Math.round(stateObj[key] || 0);
         el.value = moneyInputStr(stateObj[key]);
       });
     }
@@ -276,59 +355,46 @@ function setFromInput(obj, key, type, raw) {
   obj[key] = type === 'pct' ? n / 100 : n;
 }
 
-/* ---------- chart 1: position, debt & tax (one-time $) ---------- */
-function chartMoneySVG(r) {
-  const items = [
-    { name: 'Sell & Pay', net: r.A.net_position, debt: 0, tax: r.A.total_tax },
-    { name: 'Full 1031', net: r.B.net_position, debt: r.B.new_loan, tax: r.B.total_tax },
-    { name: 'Partial 1031', net: r.C.net_position, debt: r.C.new_loan, tax: r.C.total_tax },
-    { name: 'Levered 1031', net: r.D.net_position, debt: r.D.new_loan, tax: r.D.total_tax },
-  ];
+/* ---------- charts (on-screen summary only) ---------- */
+const NAVY = '#002f5f', SLATE = '#6e8aa6', ORANGE = '#9e5436', TEAL = '#2f7d6b';
+function chartMoneySVG(vis) {
+  const items = vis.map((s) => ({ name: s.label, net: s.net_position, debt: s.new_loan || 0, tax: s.total_tax }));
   const W = 720, H = 270, padL = 12, padR = 12, padT = 34, padB = 44;
   const plotH = H - padT - padB;
   const baseY = padT + plotH;
   const max = Math.max(1, ...items.flatMap((d) => [d.net, d.debt, d.tax]));
   const groupW = (W - padL - padR) / items.length;
-  const barW = 30, gap = 5;
-  const NAVY = '#002f5f', SLATE = '#6e8aa6', ORANGE = '#9e5436';
+  const barW = Math.max(14, Math.min(30, (groupW - 16) / 3)), gap = 4;
   const bar = (x, v, c) => {
     if (!(v > 0)) return '';
     const h = Math.max(0, (v / max) * plotH);
     return `<rect x="${x.toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="2" fill="${c}"/>` +
-      `<text x="${(x + barW / 2).toFixed(1)}" y="${(baseY - h - 5).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${c}">${shortMoney(v)}</text>`;
+      `<text x="${(x + barW / 2).toFixed(1)}" y="${(baseY - h - 5).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="${c}">${shortMoney(v)}</text>`;
   };
   let bars = '';
   items.forEach((d, i) => {
     const gc = padL + groupW * (i + 0.5);
     const x0 = gc - (barW * 3 + gap * 2) / 2;
     bars += bar(x0, d.net, NAVY) + bar(x0 + barW + gap, d.debt, SLATE) + bar(x0 + 2 * (barW + gap), d.tax, ORANGE);
-    bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 18).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${NAVY}">${d.name}</text>`;
+    bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 18).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${NAVY}">${escHtml(d.name)}</text>`;
   });
   const legend = `
-    <rect x="12" y="6" width="11" height="11" rx="2" fill="${NAVY}"/><text x="27" y="15" font-size="11.5" fill="#5a6b7b">Net Proceeds / Equity Position</text>
-    <rect x="232" y="6" width="11" height="11" rx="2" fill="${SLATE}"/><text x="247" y="15" font-size="11.5" fill="#5a6b7b">New Debt</text>
-    <rect x="330" y="6" width="11" height="11" rx="2" fill="${ORANGE}"/><text x="345" y="15" font-size="11.5" fill="#5a6b7b">Tax Due This Year</text>`;
+    <rect x="12" y="6" width="11" height="11" rx="2" fill="${NAVY}"/><text x="27" y="15" font-size="11" fill="#5a6b7b">Net Proceeds / Equity Position</text>
+    <rect x="252" y="6" width="11" height="11" rx="2" fill="${SLATE}"/><text x="267" y="15" font-size="11" fill="#5a6b7b">New Debt</text>
+    <rect x="350" y="6" width="11" height="11" rx="2" fill="${ORANGE}"/><text x="365" y="15" font-size="11" fill="#5a6b7b">Tax Due This Year</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Net proceeds, new debt, and tax due by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Roboto,system-ui,sans-serif">
     <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>
-    ${legend}
-    ${bars}
+    ${legend}${bars}
   </svg>`;
 }
-
-/* ---------- chart 2: annual property income (NOI), own scale ---------- */
-function chartNOISVG(r) {
-  const items = [
-    { name: 'Sell & Pay', v: 0, none: true },
-    { name: 'Full 1031', v: r.B.noi },
-    { name: 'Partial 1031', v: r.C.noi },
-    { name: 'Levered 1031', v: r.D.noi },
-  ];
+function chartNOISVG(vis) {
+  const items = vis.map((s) => ({ name: s.label, v: s.noi || 0, none: s.kind === 'sell' }));
   const W = 720, H = 200, padL = 12, padR = 12, padT = 22, padB = 40;
   const plotH = H - padT - padB;
   const baseY = padT + plotH;
   const max = Math.max(1, ...items.map((d) => d.v));
   const groupW = (W - padL - padR) / items.length;
-  const barW = 50, TEAL = '#2f7d6b', NAVY = '#002f5f';
+  const barW = Math.max(24, Math.min(50, groupW - 24));
   let bars = '';
   items.forEach((d, i) => {
     const gc = padL + groupW * (i + 0.5);
@@ -338,44 +404,40 @@ function chartNOISVG(r) {
     } else {
       const h = Math.max(0, (d.v / max) * plotH);
       bars += `<rect x="${x.toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" rx="3" fill="${TEAL}"/>` +
-        `<text x="${gc.toFixed(1)}" y="${(baseY - h - 6).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${TEAL}">${shortMoney(d.v)}</text>`;
+        `<text x="${gc.toFixed(1)}" y="${(baseY - h - 6).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${TEAL}">${shortMoney(d.v)}</text>`;
     }
-    bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 16).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="${NAVY}">${d.name}</text>`;
+    bars += `<text x="${gc.toFixed(1)}" y="${(baseY + 16).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${NAVY}">${escHtml(d.name)}</text>`;
   });
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Annual NOI by scenario" preserveAspectRatio="xMidYMid meet" style="font-family:Roboto,system-ui,sans-serif">
-    <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>
-    ${bars}
+    <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" stroke="#d7e0ea" stroke-width="1"/>${bars}
   </svg>`;
 }
 
-/* ---------- render: Summary ---------- */
+/* ---------- render: Summary (on-screen; keeps the current look) ---------- */
 function renderSummary(r) {
   const root = document.getElementById('view-summary');
   const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  const names = ['Sell &amp; Pay', 'Full 1031', 'Partial 1031', 'Levered 1031'];
+  const vis = r.visible;
+  const names = vis.map((s) => escHtml(s.label));
+  const span = vis.length + 1;
 
   const row = (label, vals, opts = {}) => {
-    if (opts.section) return `<tr class="section"><td colspan="5">${label}</td></tr>`;
+    if (opts.section) return `<tr class="section"><td colspan="${span}">${label}</td></tr>`;
     const classes = [];
     if (opts.strong) classes.push('strong');
     if (opts.subtle) classes.push('subtle');
     if (opts.bottom) classes.push('bottom');
-    if (opts.how) classes.push('howrow');
     if (opts.hi) classes.push('hi');
     return `<tr class="${classes.join(' ')}"><td>${label}</td>${vals.map((v) => `<td>${v}</td>`).join('')}</tr>`;
   };
+  const col = (fn) => vis.map(fn);
 
   let html = `
-  <div class="print-header">
-    <img class="ph-logo" src="assets/mm-logo-blue.png" alt="Marcus &amp; Millichap" />
-    <div class="ph-team">THE KLEIN GROUP</div>
-    <div class="ph-sub">1031 Exchange &amp; Financing Analysis &nbsp;·&nbsp; Prepared ${dateStr}</div>
-  </div>
   <div class="sum-head">
-    <button class="btn-print no-print" onclick="window.print()" title="Print or save the client summary as PDF">⎙ Print / Save PDF</button>
+    <button class="btn-print no-print" id="print-btn-sum" title="Print or save the branded client report as PDF">⎙ Print Report</button>
     <h2 class="sum-title">Client Summary</h2>
-    <p class="sum-sub">1031 Exchange &amp; Financing Analysis</p>
-    <p class="sum-note">Estimates only. Confirm with your CPA &amp; attorney.</p>
+    <p class="sum-sub">1031 Exchange &amp; Financing Analysis${r.inputs.property_address ? ' · ' + escHtml(r.inputs.property_address) : ''}</p>
+    <p class="sum-note">Estimates only. Confirm with your CPA &amp; attorney. Assumes ${money(r.other_taxable_income)} other taxable income (${escHtml(profileLabel())}), ${filingLabel()}.</p>
   </div>
 
   <div class="bridge">
@@ -391,24 +453,24 @@ function renderSummary(r) {
     <thead><tr><th>Scenario</th>${names.map((n) => `<th>${n}</th>`).join('')}</tr></thead>
     <tbody>
       ${row('THE EXCHANGE MATH', null, { section: true })}
-      ${row('Reinvestment / Buy-Up %', ['—', pct(r.B.reinvest_pct), pct(r.C.reinvest_pct), pct(r.D.reinvest_pct)])}
-      ${row('New Property Value', ['—', money(r.B.replacement_value), money(r.C.replacement_value), money(r.D.replacement_value)], { strong: true })}
-      ${row('Equity Put Into Property', ['—', money(r.B.equity_contributed), money(r.C.equity_contributed), money(r.D.equity_contributed)])}
-      ${row('New Loan', ['—', money(r.B.new_loan), money(r.C.new_loan), money(r.D.new_loan)])}
-      ${row('Cash Boot Taken', ['—', '—', money(r.C.cash_boot), '—'])}
-      ${r.C.mortgage_boot > 0 ? row('Mortgage Boot (debt relief, taxed)', ['—', '—', money(r.C.mortgage_boot), '—']) : ''}
+      ${row('Reinvestment / Buy-Up %', col((s) => s.kind === 'sell' ? '—' : pct(s.reinvest_pct)))}
+      ${row('New Property Value', col((s) => s.kind === 'sell' ? '—' : money(s.replacement_value)), { strong: true })}
+      ${row('Equity Put Into Property', col((s) => s.kind === 'sell' ? '—' : money(s.equity_contributed)))}
+      ${row('New Loan', col((s) => s.kind === 'sell' ? '—' : money(s.new_loan)))}
+      ${row('Cash Boot Taken', col((s) => s.kind === 'partial' ? money(s.cash_boot) : '—'))}
 
       ${row('THE TAX', null, { section: true })}
-      ${row('Realized Gain', [money(r.realized_gain), money(r.realized_gain), money(r.realized_gain), money(r.realized_gain)])}
-      ${row('Gain Recognized (taxed now)', [money(r.A.recognized_gain), '—', money(r.C.recognized_gain), '—'])}
-      ${row('Total Tax Due This Year', [money(r.A.total_tax), '—', money(r.C.total_tax), '—'], { strong: true, subtle: true })}
-      ${row('Tax Deferred vs. Selling', ['—', money(r.B.tax_deferred), money(r.C.tax_deferred), money(r.D.tax_deferred)])}
+      ${row('Realized Gain', col(() => money(r.realized_gain)))}
+      ${row('Gain Recognized (taxed now)', col((s) => s.recognized_gain > 0 ? money(s.recognized_gain) : '—'))}
+      ${row('Total Tax Due This Year', col((s) => s.recognized_gain > 0 ? money(s.total_tax) : '—'), { strong: true, subtle: true })}
+      ${row('Tax Deferred vs. Selling', col((s) => s.kind === 'sell' ? '—' : money(s.tax_deferred)))}
 
       ${row('THE NEW INCOME', null, { section: true })}
-      ${row('Annual NOI (new property)', ['—', money(r.B.noi), money(r.C.noi), money(r.D.noi)])}
-      ${row('Net Cash Flow After Debt', ['—', money(r.B.net_cash_flow), money(r.C.net_cash_flow), money(r.D.net_cash_flow)], { hi: true })}
+      ${row('Cap Rate', col((s) => s.kind === 'sell' ? '—' : pct(s.yield)))}
+      ${row('Annual NOI (new property)', col((s) => s.kind === 'sell' ? '—' : money(s.noi)))}
+      ${row('Net Cash Flow After Debt', col((s) => s.kind === 'sell' ? '—' : money(s.net_cash_flow)), { hi: true })}
 
-      ${row('Net Proceeds / Position', [money(r.A.net_position), money(r.B.net_position), money(r.C.net_position), money(r.D.net_position)], { bottom: true })}
+      ${row('Net Proceeds / Position', col((s) => money(s.net_position)), { bottom: true })}
     </tbody>
   </table></div>
 
@@ -417,44 +479,58 @@ function renderSummary(r) {
   <div class="card chart-card"><div class="sec-head">AT A GLANCE</div>
     <div class="body chart-body">
       <div class="chart-title">Position, debt &amp; tax</div>
-      ${chartMoneySVG(r)}
-      <p class="chart-cap">The exchanges defer ${money(r.B.tax_deferred)} of tax versus selling, and trade up into a larger, financed asset.</p>
+      ${chartMoneySVG(vis)}
       <div class="chart-title" style="margin-top:16px">Annual property income (NOI)</div>
-      ${chartNOISVG(r)}
+      ${chartNOISVG(vis)}
     </div>
   </div>
 
-  <p class="footnote">Tax rates verified June 2026 (Fed ${pct(r.inputs.rate_ltcg, 0)} LTCG · ${pct(r.inputs.rate_recapture, 0)} recapture · ${pct(r.inputs.rate_niit)} NIIT · MA ${pct(r.inputs.ma_rate, 0)} + ${pct(r.inputs.ma_surtax_rate, 0)} surtax over ${money(r.inputs.ma_surtax_threshold)}). §1031 needs 45-day ID / 180-day close.</p>
+  <p class="footnote">Tax stack: 25% §1250 recapture, federal LTCG across ${pct(r.inputs.rate_ltcg_0,0)}/${pct(r.inputs.rate_ltcg_15,0)}/${pct(r.inputs.rate_ltcg,0)} brackets, ${pct(r.inputs.rate_niit)} NIIT (capped), MA ${pct(r.inputs.ma_rate,0)} + ${pct(r.inputs.ma_surtax_rate,0)} surtax on income over ${money(r.inputs.ma_surtax_threshold)}. §1031 needs 45-day ID / 180-day close.</p>
 
-  <div class="disclaimer"><strong>Disclaimer.</strong> Estimates only. Confirm with your accountant and attorney. §1031 deferral requires replacing value, equity, AND debt, plus the 45-day identification / 180-day closing deadlines; this model assumes a qualifying exchange. The §1.168(i)-6 election (Levered) and §1245 cost-seg recapture require CPA sign-off for a specific deal. The MA 4% surtax is computed on your other taxable income plus the recognized gain. Enter accurate other income for a correct estimate.</div>
-  <div class="print-footer">Marcus &amp; Millichap | The Klein Group &nbsp;·&nbsp; 1031 Exchange &amp; Financing Analysis &nbsp;·&nbsp; Estimates only. Confirm with your CPA &amp; attorney &nbsp;·&nbsp; Prepared ${dateStr}</div>
+  <div class="disclaimer"><strong>Disclaimer.</strong> Estimates only. Confirm with your accountant and attorney. §1031 deferral requires replacing value, equity, AND debt, plus the 45-day identification / 180-day closing deadlines; this model assumes a qualifying exchange. The §1.168(i)-6 election (Levered) and §1245 cost-seg recapture require CPA sign-off. The analysis assumes ${money(r.other_taxable_income)} of other taxable income.</div>
   `;
   root.innerHTML = html;
 
+  const warns = buildWarnings(r);
+  document.getElementById('warn-box').innerHTML = warns.map((w) => `<div class="warn">⚠︎ ${w}</div>`).join('');
+  const pb = document.getElementById('print-btn-sum');
+  if (pb) pb.addEventListener('click', () => window.print());
+}
+
+function profileLabel() {
+  const p = state.income_profile;
+  return p === 'moderate' ? 'Moderate' : p === 'high' ? 'High' : p === 'custom' ? 'Custom' : 'Typical';
+}
+function filingLabel() { return state.filing_status === 'single' ? 'single filer' : 'married filing jointly'; }
+
+function buildWarnings(r) {
   const warns = [];
   if (r.equity_available < 0)
     warns.push('Mortgage payoff exceeds net sale proceeds; there is no equity available to exchange, so the 1031 scenarios show $0.');
-  if (r.C.mortgage_boot > 0)
-    warns.push(`Partial does not replace the ${money(r.inputs.current_mortgage_payoff)} mortgage, so that debt relief is also taxed as boot. The Partial taxable gain (${money(r.C.recognized_gain)}) is larger than the cash taken out (${money(r.C.cash_boot)}).`);
-  else if (r.C.cash_boot > 0)
-    warns.push('Partial exchange takes cash out; that cash is taxable this year as boot (recapture layer first).');
-  if (r.C.boot_cash_kept < 0)
+  if (r.C.show && r.C.mortgage_boot > 0)
+    warns.push(`Partial does not replace the ${money(r.inputs.current_mortgage_payoff)} mortgage, so that debt relief is also taxed as boot. The Partial taxable gain (${money(r.C.recognized_gain)}) exceeds the cash taken out (${money(r.C.cash_boot)}).`);
+  else if (r.C.show && r.C.cash_boot > 0)
+    warns.push('The Partial exchange takes cash out; that cash is taxable this year as boot (recapture layer first).');
+  if (r.C.show && r.C.boot_cash_kept < 0)
     warns.push('In the Partial scenario the tax exceeds the cash taken out, so the shortfall must be paid from other funds.');
-  const wb = document.getElementById('warn-box');
-  wb.innerHTML = warns.map((w) => `<div class="warn">⚠︎ ${w}</div>`).join('');
+  return warns;
 }
 
-/* ---------- render: Scenario Detail (A/B/C/D) ---------- */
-function taxStack(tb, costSeg) {
+/* ---------- render: Scenario Detail ---------- */
+function taxStack(tb, costSeg, rates) {
   const r = (label, sub, val) =>
     `<div class="tx-row"><div class="tx-lbl">${label}${sub ? `<span class="tx-sub">${sub}</span>` : ''}</div><div class="tx-val">${money(val)}</div></div>`;
   const sub = (v, txt) => (v > 0 ? txt : '');
-  let rows =
-    r('§1250 Recapture · 25%', sub(tb.gain_recapture_layer, `on ${money(tb.gain_recapture_layer)} layer`), tb.tax_recapture) +
-    r('Federal LTCG · 20%', sub(tb.gain_ltcg_layer, `on ${money(tb.gain_ltcg_layer)} layer`), tb.tax_ltcg) +
-    r('NIIT · 3.8%', sub(tb.recognized_gain, `on ${money(tb.recognized_gain)} recognized`), tb.tax_niit) +
-    r('MA Income · 5.0%', '', tb.tax_ma) +
-    r('MA 4% Surtax', sub(tb.tax_surtax, 'over the threshold'), tb.tax_surtax);
+  const p = tb.ltcg_parts || [];
+  const p0 = p[0] || { amount: 0, tax: 0 }, p1 = p[1] || { amount: 0, tax: 0 }, p2 = p[2] || { amount: 0, tax: 0 };
+  let rows = r(`§1250 Recapture · ${pct(rates.rate_recapture, 0)}`, sub(tb.gain_recapture_layer, `on ${money(tb.gain_recapture_layer)} layer`), tb.tax_recapture);
+  if (p0.amount > 0) rows += r(`Federal LTCG · ${pct(rates.rate_ltcg_0, 0)}`, `on ${money(p0.amount)} layer`, p0.tax);
+  if (p1.amount > 0) rows += r(`Federal LTCG · ${pct(rates.rate_ltcg_15, 0)}`, `on ${money(p1.amount)} layer`, p1.tax);
+  if (p2.amount > 0 || (p0.amount === 0 && p1.amount === 0)) rows += r(`Federal LTCG · ${pct(rates.rate_ltcg, 0)}`, sub(p2.amount, `on ${money(p2.amount)} layer`), p2.tax);
+  rows +=
+    r(`NIIT · ${pct(rates.rate_niit)}`, sub(tb.tax_niit, `capped at MAGI over ${money(rates.niit_threshold)}`), tb.tax_niit) +
+    r(`MA Income · ${pct(rates.ma_rate, 1)}`, '', tb.tax_ma) +
+    r(`MA ${pct(rates.ma_surtax_rate, 0)} Surtax`, sub(tb.tax_surtax, 'increment over threshold'), tb.tax_surtax);
   if (costSeg) rows += r('§1245 Recapture · ordinary', 'cost-seg personal property', tb.tax_1245);
   rows += `<div class="tx-row tx-total"><div class="tx-lbl">Total Tax Due This Year</div><div class="tx-val">${money(tb.total)}</div></div>`;
   return rows;
@@ -464,31 +540,20 @@ function detailRow(label, val, opts = {}) {
   return `<div class="${cls}"><div class="d-lbl">${label}</div><div class="d-val">${val}</div></div>`;
 }
 function scenarioCard(scn, r) {
-  const meta = {
-    A: { name: 'Sell &amp; Pay', tag: 'Sell now, pay the full tax', cls: 'scn-a' },
-    B: { name: 'Full §1031', tag: 'Defer 100%, no cash out', cls: 'scn-b' },
-    C: { name: 'Partial §1031', tag: 'Exchange + take some cash', cls: 'scn-c' },
-    D: { name: 'Leveraged §1031', tag: 'Trade up with new debt', cls: 'scn-d' },
-  }[scn.key];
-  const deferred = scn.key === 'B' || scn.key === 'D';
+  const tagByKind = {
+    sell: 'Sell now, pay the full tax', full: 'Defer 100%, no cash out',
+    partial: 'Exchange + take some cash', levered: 'Trade up with new debt',
+  };
+  const deferred = scn.recognized_gain <= 0 && scn.kind !== 'sell';
 
   let position = '';
-  if (scn.key === 'A') {
+  if (scn.kind === 'sell') {
     position =
       detailRow('Amount Realized', money(r.amount_realized)) +
       detailRow('Less: Mortgage Payoff', money(-r.inputs.current_mortgage_payoff)) +
       detailRow('Less: Total Tax', money(-scn.total_tax)) +
       detailRow('Net After-Tax Proceeds', money(scn.net_position), { hero: true });
-  } else if (scn.key === 'B') {
-    position =
-      detailRow('New Property Value', money(scn.replacement_value), { strong: true }) +
-      detailRow('Equity Invested', money(scn.equity_contributed)) +
-      detailRow('New Loan (replaces debt)', money(scn.new_loan)) +
-      detailRow('Annual NOI', money(scn.noi)) +
-      detailRow('Annual Debt Service', money(scn.annual_debt_service)) +
-      detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
-      detailRow('Equity Position', money(scn.net_position), { hero: true });
-  } else if (scn.key === 'C') {
+  } else if (scn.kind === 'partial') {
     position =
       detailRow('New Property Value', money(scn.replacement_value), { strong: true }) +
       detailRow('Equity Reinvested (deferred)', money(scn.equity_contributed)) +
@@ -500,7 +565,7 @@ function scenarioCard(scn, r) {
       detailRow('Annual Debt Service', money(scn.annual_debt_service)) +
       detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
       detailRow('Total Position (equity + cash)', money(scn.net_position), { hero: true });
-  } else {
+  } else if (scn.kind === 'levered') {
     position =
       detailRow('New Property Value', money(scn.replacement_value), { strong: true }) +
       detailRow('Equity Invested', money(scn.equity_contributed)) +
@@ -514,6 +579,16 @@ function scenarioCard(scn, r) {
       detailRow('Total Annual Benefit', money(scn.total_annual_benefit)) +
       detailRow('Return on Equity', pct(scn.total_return_equity)) +
       detailRow('Equity Position', money(scn.net_position), { hero: true });
+  } else { // full (B, B2)
+    position =
+      detailRow('New Property Value', money(scn.replacement_value), { strong: true }) +
+      detailRow('Equity Invested', money(scn.equity_contributed)) +
+      detailRow('New Loan (replaces debt)', money(scn.new_loan)) +
+      detailRow('Cap Rate', pct(scn.yield)) +
+      detailRow('Annual NOI', money(scn.noi)) +
+      detailRow('Annual Debt Service', money(scn.annual_debt_service)) +
+      detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
+      detailRow('Equity Position', money(scn.net_position), { hero: true });
   }
 
   const deferBanner = deferred
@@ -522,18 +597,18 @@ function scenarioCard(scn, r) {
 
   return `<div class="scn-card">
     <div class="scn-head">
-      <div><span class="scn-key">${scn.key}</span><span class="scn-name">${meta.name}</span></div>
-      <span class="scn-tag">${meta.tag}</span>
+      <div><span class="scn-key">${scn.key}</span><span class="scn-name">${escHtml(scn.label)}</span></div>
+      <span class="scn-tag">${tagByKind[scn.kind]}</span>
     </div>
     <div class="scn-body">
       <div class="scn-grp">THE GAIN</div>
       ${detailRow('Realized Gain', money(r.realized_gain))}
-      ${scn.key === 'C' && scn.mortgage_boot > 0 ? detailRow('· Cash boot (cash taken)', money(scn.cash_boot)) + detailRow('· Mortgage boot (debt not replaced)', money(scn.mortgage_boot)) : ''}
+      ${scn.kind === 'partial' && scn.mortgage_boot > 0 ? detailRow('· Cash boot (cash taken)', money(scn.cash_boot)) + detailRow('· Mortgage boot (debt not replaced)', money(scn.mortgage_boot)) : ''}
       ${detailRow('Gain Recognized (taxed now)', money(scn.recognized_gain), { strong: true })}
       <div class="scn-grp">THE TAX STACK</div>
       ${deferBanner}
-      ${taxStack(scn.tax_breakdown, r.inputs.cost_seg_flag === 1)}
-      <div class="scn-grp">${scn.key === 'A' ? 'WHAT YOU WALK AWAY WITH' : 'WHAT YOU REINVEST / WALK AWAY WITH'}</div>
+      ${taxStack(scn.tax_breakdown, r.inputs.cost_seg_flag === 1, r.inputs)}
+      <div class="scn-grp">${scn.kind === 'sell' ? 'WHAT YOU WALK AWAY WITH' : 'WHAT YOU REINVEST / WALK AWAY WITH'}</div>
       ${position}
     </div>
   </div>`;
@@ -544,17 +619,180 @@ function renderScenarios(r) {
     <div class="sum-head">
       <h2 class="sum-title">Scenario Detail</h2>
       <p class="sum-sub">The full tax stack and economics behind each option</p>
-      <p class="sum-note">Read-only. Every figure derives from the Assumptions tab. Recapture is taxed first, then long-term capital gains.</p>
+      <p class="sum-note">Read-only. Every figure derives from the Assumptions tab. Recapture is taxed first, then long-term capital gains across the brackets.</p>
     </div>
     <div class="scn-grid">
-      ${scenarioCard(r.A, r)}
-      ${scenarioCard(r.B, r)}
-      ${scenarioCard(r.C, r)}
-      ${scenarioCard(r.D, r)}
+      ${r.visible.map((s) => scenarioCard(s, r)).join('')}
     </div>`;
 }
 
-/* ---------- render: Financing Tool ---------- */
+/* ---------- PRINT REPORT (branded Excel-style, @media print) ---------- */
+function renderPrintReport(r) {
+  const root = document.getElementById('print-report');
+  if (!root) return;
+  const vis = r.visible;
+  const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const span = vis.length + 1;
+  const I = r.inputs;
+
+  // income table (fixed profiles)
+  const incs = [100000, 250000, 600000];
+  const incData = incs.map((v) => taxAtIncome(I, v));
+  const selIncome = Math.round(r.other_taxable_income);
+  const surtaxAt = (v) => taxAtIncome(I, v).stack.tax_surtax;
+  const yMore = Math.max(0, surtaxAt(600000) - surtaxAt(selIncome));
+
+  const header = (page) => `
+    <div class="pr-header">
+      <div class="pr-brand">
+        <img class="pr-logo" src="assets/mm-logo-blue.png" alt="Marcus &amp; Millichap"/>
+        <div class="pr-brandtext">
+          <div class="pr-team">THE KLEIN GROUP</div>
+          <div class="pr-title">1031 Exchange &amp; Financing Analysis</div>
+        </div>
+      </div>
+      <div class="pr-meta">Prepared for ${escHtml(I.prepared_for || '—')} &nbsp;|&nbsp; ${escHtml(I.property_address || '—')} &nbsp;|&nbsp; ${dateStr}</div>
+    </div>`;
+
+  const footer = (n, total) => `
+    <div class="pr-footer">Marcus &amp; Millichap | The Klein Group &nbsp;|&nbsp; Estimates only, not tax or legal advice. Confirm with your CPA and attorney. &nbsp;|&nbsp; Page ${n} of ${total}</div>`;
+
+  // ---- main grid ----
+  const sec = (label) => `<tr class="pr-sec"><td colspan="${span}">${label}</td></tr>`;
+  const trow = (label, cells, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td class="pr-lbl">${label}</td>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+  const col = (fn) => vis.map(fn);
+
+  const gridRows = [
+    sec('SALE'),
+    trow('Sale Price', col(() => acct(I.sale_price))),
+    trow('Less: Selling Costs', col(() => acct(-r.transaction_costs))),
+    trow('Net Sale Price (value to replace)', col(() => acct(r.amount_realized)), 'pr-subtotal'),
+    trow('Less: Mortgage Payoff', col(() => acct(-I.current_mortgage_payoff))),
+    trow('Realized Gain', col(() => acct(r.realized_gain))),
+
+    sec('TAX DUE AT SALE'),
+    trow('Gain Recognized This Year', col((s) => s.recognized_gain > 0 ? acct(s.recognized_gain) : acct(0))),
+    trow('Total Tax Due This Year', col((s) => s.recognized_gain > 0 ? acct(s.total_tax) : acct(0)), 'pr-subtotal'),
+    trow('Tax Deferred vs. Selling', col((s) => s.kind === 'sell' ? acct(0) : acct(s.tax_deferred))),
+
+    sec('REINVESTMENT'),
+    trow('New Property Value', col((s) => s.kind === 'sell' ? acct(0) : acct(s.replacement_value))),
+    trow('Equity Invested', col((s) => s.kind === 'sell' ? acct(0) : acct(s.equity_contributed))),
+    trow('New Loan', col((s) => s.kind === 'sell' ? acct(0) : acct(s.new_loan))),
+    trow('Cash Boot Taken', col((s) => s.kind === 'partial' ? acct(s.cash_boot) : acct(0))),
+
+    sec('ANNUAL INCOME'),
+    trow('Cap Rate', col((s) => s.kind === 'sell' ? '–' : pct(s.yield))),
+    trow('Annual NOI', col((s) => s.kind === 'sell' ? acct(0) : acct(s.noi))),
+    trow('Annual Debt Service', col((s) => s.kind === 'sell' ? acct(0) : acct(s.annual_debt_service))),
+    trow('Net Cash Flow After Debt', col((s) => s.kind === 'sell' ? acct(0) : acct(s.net_cash_flow))),
+
+    sec('NET POSITION'),
+    trow('Net Proceeds / Equity Position', col((s) => acct(s.net_position)), 'pr-total'),
+  ].join('');
+
+  const gridTable = `
+    <table class="pr-grid">
+      <colgroup><col class="pr-c0"/>${vis.map(() => '<col/>').join('')}</colgroup>
+      <thead><tr><th class="pr-lbl">&nbsp;</th>${vis.map((s) => `<th>${escHtml(s.label)}</th>`).join('')}</tr></thead>
+      <tbody>${gridRows}</tbody>
+    </table>`;
+
+  // ---- income sensitivity table ----
+  const incTable = `
+    <div class="pr-h2">Estimated tax by other income</div>
+    <table class="pr-grid pr-inc">
+      <thead><tr><th class="pr-lbl">If sold this year</th>${incs.map((v) => `<th>${acct(v)}${v === 600000 ? '+' : ''} income</th>`).join('')}</tr></thead>
+      <tbody>
+        <tr><td class="pr-lbl">Tax if sold (Sell &amp; Pay)</td>${incData.map((d) => `<td>${acct(d.tax_if_sold)}</td>`).join('')}</tr>
+        <tr><td class="pr-lbl">Net proceeds after tax</td>${incData.map((d) => `<td>${acct(d.net_after_tax)}</td>`).join('')}</tr>
+        <tr class="pr-subtotal"><td class="pr-lbl">Tax deferred with a full 1031</td>${incData.map((d) => `<td>${acct(d.tax_deferred_full)}</td>`).join('')}</tr>
+      </tbody>
+    </table>
+    <p class="pr-smallnote">Main table uses the selected profile: ${acct(selIncome)} other taxable income (${escHtml(profileLabel())}).</p>`;
+
+  // ---- footnotes ----
+  const warns = buildWarnings(r);
+  const fixedNote = `Assumes approximately ${acct(selIncome)} other taxable income, ${filingLabel()}. Higher incomes may add up to ~${acct(yMore)} in MA surtax. Your CPA can refine.`;
+  const notes = [fixedNote, ...warns];
+  const footnotes = `<ol class="pr-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ol>`;
+
+  // ---- page 2: assumptions block (blue inputs) ----
+  const inRow = (label, val) => `<div class="pr-arow"><span class="pr-albl">${label}</span><span class="pr-ain">${val}</span></div>`;
+  const outRow = (label, val) => `<div class="pr-arow"><span class="pr-albl">${label}</span><span class="pr-aout">${val}</span></div>`;
+  const assumptions = `
+    <div class="pr-h2">Assumptions &amp; inputs</div>
+    <div class="pr-agrid">
+      <div class="pr-acol">
+        <div class="pr-asub">Property &amp; sale</div>
+        ${inRow('Estimated Sale Price', acct(I.sale_price))}
+        ${inRow('Original Purchase Price', acct(I.original_purchase_price))}
+        ${inRow('Capital Improvements', acct(I.capital_improvements))}
+        ${inRow('Current Mortgage Payoff', acct(I.current_mortgage_payoff))}
+        ${inRow('Land % used', pct(r.land_pct) + ' (' + r.land_source + ')')}
+        ${inRow('Recovery Life', I.recovery_life + ' yrs')}
+        ${inRow('Years Held', r.years_held + ' yrs')}
+        ${outRow('Accumulated Depreciation', acct(r.accumulated_depreciation))}
+        ${outRow('Adjusted Basis', acct(r.adjusted_basis))}
+      </div>
+      <div class="pr-acol">
+        <div class="pr-asub">Income &amp; tax rates</div>
+        ${inRow('Other Taxable Income', acct(r.other_taxable_income))}
+        ${inRow('Filing Status', filingLabel())}
+        ${inRow('§1250 Recapture rate', pct(I.rate_recapture, 0))}
+        ${inRow('Federal LTCG brackets', pct(I.rate_ltcg_0,0) + ' / ' + pct(I.rate_ltcg_15,0) + ' / ' + pct(I.rate_ltcg,0))}
+        ${inRow('LTCG breakpoints', acct(I.ltcg_bkt_0) + ' / ' + acct(I.ltcg_bkt_1))}
+        ${inRow('NIIT rate / threshold', pct(I.rate_niit) + ' over ' + acct(I.niit_threshold))}
+        ${inRow('MA rate + surtax', pct(I.ma_rate,1) + ' + ' + pct(I.ma_surtax_rate,0) + ' over ' + acct(I.ma_surtax_threshold))}
+        ${inRow('Broker / Transfer / Atty / Fixed', pct(I.broker_pct,1) + ' · $' + I.transfer_rate + '/500 · ' + acct(I.attorney_costs) + ' · ' + acct(I.fixed_fees))}
+      </div>
+    </div>`;
+
+  // ---- page 2: full tax stack per scenario ----
+  const stackRows = (s) => {
+    const tb = s.tax_breakdown;
+    const p = tb.ltcg_parts || [];
+    const g = (idx) => (p[idx] || { tax: 0 }).tax;
+    const vals = s.recognized_gain > 0;
+    return `<tr><td class="pr-lbl">${escHtml(s.label)}</td>
+      <td>${acct(s.recognized_gain)}</td>
+      <td>${vals ? acct(tb.tax_recapture) : '–'}</td>
+      <td>${vals ? acct(g(0)) : '–'}</td>
+      <td>${vals ? acct(g(1)) : '–'}</td>
+      <td>${vals ? acct(g(2)) : '–'}</td>
+      <td>${vals ? acct(tb.tax_niit) : '–'}</td>
+      <td>${vals ? acct(tb.tax_ma) : '–'}</td>
+      <td>${vals ? acct(tb.tax_surtax) : '–'}</td>
+      <td class="pr-total-cell">${acct(tb.total)}</td></tr>`;
+  };
+  const stackTable = `
+    <div class="pr-h2">Full tax stack by scenario</div>
+    <table class="pr-grid pr-stack">
+      <thead><tr>
+        <th class="pr-lbl">Scenario</th><th>Recognized</th><th>§1250 25%</th>
+        <th>Fed ${pct(I.rate_ltcg_0,0)}</th><th>Fed ${pct(I.rate_ltcg_15,0)}</th><th>Fed ${pct(I.rate_ltcg,0)}</th>
+        <th>NIIT</th><th>MA 5%</th><th>MA 4%</th><th>Total</th>
+      </tr></thead>
+      <tbody>${vis.map(stackRows).join('')}</tbody>
+    </table>`;
+
+  root.innerHTML = `
+    <section class="pr-page">
+      ${header(1)}
+      ${gridTable}
+      ${incTable}
+      ${footnotes}
+      ${footer(1, 2)}
+    </section>
+    <section class="pr-page pr-page2">
+      ${header(2)}
+      ${assumptions}
+      ${stackTable}
+      ${footer(2, 2)}
+    </section>`;
+}
+
+/* ---------- Financing Tool ---------- */
 const FIN_FIELDS = [
   ['noi', 'Net Operating Income (NOI)', 'money'],
   ['sale_price', 'Property / Sale Price', 'money'],
@@ -570,7 +808,6 @@ function renderFinancing() {
     const value = type === 'pct' ? +(finState[key] * 100).toFixed(4) : finState[key];
     inputsHtml += `<div class="field"><div class="lbl">${label}</div>${inputCell(key, type, value, undefined, 'data-fkey', label)}</div>`;
   }
-
   root.innerHTML = `
     <div class="card"><div class="sec-head"><span><span class="num">·</span>FINANCING INPUTS</span></div>
       <div class="body"><p class="sec-desc">Standalone debt sizing, independent of the exchange logic. The same NOI, price, loan, and rate feed both the conventional (amortizing) and interest-only views.</p>${inputsHtml}</div>
@@ -579,8 +816,7 @@ function renderFinancing() {
       <div class="card"><div class="sec-head">CONVENTIONAL (AMORTIZING)</div><div id="fin-conv" class="fin-out"></div></div>
       <div class="card"><div class="sec-head">INTEREST-ONLY</div><div id="fin-io" class="fin-out"></div></div>
     </div>
-    <p class="footnote">Payment uses the monthly convention: PMT(rate/12, amort×12, loan) × 12. Term is the balloon/maturity and does not drive the payment.</p>
-  `;
+    <p class="footnote">Payment uses the monthly convention: PMT(rate/12, amort×12, loan) × 12. Term is the balloon/maturity and does not drive the payment.</p>`;
   wireInputs(root, 'data-fkey', () => recomputeFinancing());
   recomputeFinancing();
 }
@@ -599,19 +835,16 @@ function recomputeFinancing() {
   saveState();
 }
 
-/* ---------- Saved deals (save / load / compare) ---------- */
-const DEALS_KEY = 'tkg_1031_deals';
+/* ---------- Saved deals ---------- */
+const DEALS_KEY = 'tkg_1031_deals_v2';
 let deals = loadDeals();
-const compareSel = new Set(); // selected deal ids
-
+const compareSel = new Set();
 function loadDeals() {
   try { const d = JSON.parse(localStorage.getItem(DEALS_KEY)); return Array.isArray(d) ? d : []; }
   catch (e) { return []; }
 }
 function persistDeals() { try { localStorage.setItem(DEALS_KEY, JSON.stringify(deals)); } catch (e) {} }
 function nextDealId() { return deals.reduce((m, d) => Math.max(m, d.id || 0), 0) + 1; }
-function escHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
-
 function saveDeal(name) {
   name = (name || '').trim() || 'Deal ' + (deals.length + 1);
   const existing = deals.find((d) => d.name.toLowerCase() === name.toLowerCase());
@@ -634,16 +867,6 @@ function deleteDealById(id) {
   persistDeals();
   renderSavedDeals();
 }
-function bestLabel(r) {
-  const arr = [
-    { name: 'Sell & Pay', net: r.A.net_position },
-    { name: 'Full 1031', net: r.B.net_position },
-    { name: 'Partial 1031', net: r.C.net_position },
-    { name: 'Levered 1031', net: r.D.net_position },
-  ];
-  return arr.reduce((a, b) => (b.net > a.net ? b : a));
-}
-
 function renderSavedDeals() {
   const root = document.getElementById('view-saved');
   if (!root) return;
@@ -658,7 +881,6 @@ function renderSavedDeals() {
         </div>`;
       }).join('')
     : '<p class="sec-desc">No saved deals yet. Enter inputs on the Assumptions tab, then save them here to compare properties side by side.</p>';
-
   root.innerHTML = `
     <div class="sum-head"><h2 class="sum-title">Saved Deals &amp; Compare</h2>
       <p class="sum-sub">Save a property's inputs and compare options across deals</p>
@@ -669,11 +891,8 @@ function renderSavedDeals() {
         <button class="btn-print" id="deal-save">Save current deal</button></div></div></div>
     <div class="card"><div class="sec-head">SAVED DEALS</div><div class="body">${list}</div></div>
     <div id="compare-box"></div>`;
-
-  const saveBtn = document.getElementById('deal-save');
-  const nameInput = document.getElementById('deal-name');
-  saveBtn.addEventListener('click', () => { saveDeal(nameInput.value); });
-  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveDeal(nameInput.value); });
+  document.getElementById('deal-save').addEventListener('click', () => saveDeal(document.getElementById('deal-name').value));
+  document.getElementById('deal-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveDeal(e.target.value); });
   root.querySelectorAll('[data-load]').forEach((b) => b.addEventListener('click', () => loadDealById(+b.dataset.load)));
   root.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => deleteDealById(+b.dataset.del)));
   root.querySelectorAll('[data-cmp]').forEach((c) => c.addEventListener('change', () => {
@@ -682,14 +901,13 @@ function renderSavedDeals() {
   }));
   renderCompare();
 }
-
 function renderCompare() {
   const box = document.getElementById('compare-box');
   if (!box) return;
   const sel = deals.filter((d) => compareSel.has(d.id));
   if (!sel.length) { box.innerHTML = '<p class="footnote">Tick two or more deals above to compare them side by side.</p>'; return; }
   const rs = sel.map((d) => ({ name: d.name, r: compute({ ...DEFAULTS, ...d.inputs }) }));
-  const rrow = (label, fn, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td>${label}</td>${rs.map((x) => `<td>${fn(x.r)}</td>`).join('')}</tr>`;
+  const rrow = (label, fn) => `<tr><td>${label}</td>${rs.map((x) => `<td>${fn(x.r)}</td>`).join('')}</tr>`;
   box.innerHTML = `<div class="card"><div class="sec-head">COMPARE (${sel.length})</div>
     <div class="body" style="overflow-x:auto">
     <table class="summary"><thead><tr><th>Metric</th>${rs.map((x) => `<th>${escHtml(x.name)}</th>`).join('')}</tr></thead><tbody>
@@ -698,28 +916,30 @@ function renderCompare() {
       ${rrow('Tax if sold now', (r) => money(r.A.total_tax))}
       <tr class="section"><td colspan="${rs.length + 1}">NET PROCEEDS / POSITION</td></tr>
       ${rrow('Sell &amp; Pay', (r) => money(r.A.net_position))}
-      ${rrow('Full 1031', (r) => money(r.B.net_position))}
-      ${rrow('Partial 1031', (r) => money(r.C.net_position))}
-      ${rrow('Levered 1031', (r) => money(r.D.net_position))}
       ${rrow('Max Tax Deferred', (r) => money(Math.max(r.B.tax_deferred, r.C.tax_deferred, r.D.tax_deferred)))}
     </tbody></table></div></div>`;
 }
 
-/* ---------- recompute (assumptions + summary + scenarios) ---------- */
+/* ---------- recompute ---------- */
 function recompute() {
   state.years_held = Math.max(0, CURRENT_YEAR - (state.year_purchased || CURRENT_YEAR));
+  state.improvement_years_held = Math.max(0, CURRENT_YEAR - (state.improvement_year || CURRENT_YEAR));
   const r = compute(state);
   document.querySelectorAll('[data-calc]').forEach((el) => {
-    const v = r[el.dataset.calc];
-    if (el.dataset.fmt === 'yrs') {
-      const y = Math.round(v || 0);
+    const key = el.dataset.calc;
+    const fmt = el.dataset.fmt;
+    if (fmt === 'yrs') {
+      const y = Math.round(r[key] || 0);
       el.textContent = y + (y === 1 ? ' yr' : ' yrs');
+    } else if (fmt === 'pctlabel' && key === 'land_pct_eff') {
+      el.textContent = pct(r.land_pct) + ' (' + r.land_source + ')';
     } else {
-      el.textContent = moneyZero(v);
+      el.textContent = moneyZero(r[key]);
     }
   });
   renderSummary(r);
   renderScenarios(r);
+  renderPrintReport(r);
   saveState();
 }
 
