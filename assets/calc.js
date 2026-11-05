@@ -57,11 +57,11 @@ const DEFAULTS = {
   /* ---- Scenarios (A = Sell & Pay; B/B2 = two full exchanges; C/D below) ----
      Each exchange scenario carries an editable label, a show/hide flag, and
      its own replacement economics (cap rate / loan rate / term / amort). */
-  a_label: 'Sell & Pay',            a_show: 1,
-  b_label: '1031 into DST',         b_show: 1,  b_yield: 0.0475, b_rate: 0.064, b_term: 15, b_amort: 30,
-  b2_label: '1031 into Absolute NNN', b2_show: 1, b2_yield: 0.0625, b2_rate: 0.064, b2_term: 15, b2_amort: 30,
-  c_label: 'Partial 1031',          c_show: 1,  c_yield: 0.0625, c_rate: 0.064, c_term: 15, c_amort: 30,
-  d_label: 'Levered 1031',          d_show: 1,  d_yield: 0.0625, d_rate: 0.064, d_term: 15, d_amort: 30,
+  a_label: 'Sell & Pay',              a_note: 'pay the tax now',              a_show: 1,
+  b_label: '1031 into DST',           b_note: 'passive, fractional',          b_show: 1,  b_yield: 0.0475, b_rate: 0.064, b_term: 15, b_amort: 30,
+  b2_label: '1031 into Absolute NNN', b2_note: 'single tenant',               b2_show: 1, b2_yield: 0.0625, b2_rate: 0.064, b2_term: 15, b2_amort: 30,
+  c_label: 'Partial 1031',            c_note: 'reinvest part, keep the rest', c_show: 1,  c_yield: 0.0625, c_rate: 0.064, c_term: 15, c_amort: 30,
+  d_label: 'Levered 1031',            d_note: 'trade up with new debt',       d_show: 1,  d_yield: 0.0725, d_rate: 0.064, d_term: 15, d_amort: 30,
 
   /* ---- 5 · Tax rates & thresholds (2026 MFJ; every one editable) ---- */
   rate_recapture: 0.25,         // unrecaptured §1250 gain, max 25%
@@ -233,7 +233,7 @@ function compute(i) {
   // ---- A — Sell & Pay ----
   const taxA = tax(realized_gain);
   const A = {
-    key: 'A', kind: 'sell', label: i.a_label, show: i.a_show !== 0,
+    key: 'A', kind: 'sell', label: i.a_label, note: i.a_note, show: i.a_show !== 0,
     recognized_gain: realized_gain,
     total_tax: taxA.total,
     tax_breakdown: taxA,
@@ -242,7 +242,7 @@ function compute(i) {
   };
 
   // ---- Full exchange (shared shape for B and B2): replace the full net value ----
-  function fullExchange(key, label, show, econ) {
+  function fullExchange(key, label, note, show, econ) {
     const sz = {
       replacement_value: amount_realized,
       equity_contributed: eq,
@@ -253,18 +253,18 @@ function compute(i) {
     const tb = tax(rec);
     const eco = holdEconomics(econ, sz);
     return {
-      key, kind: 'full', label, show: show !== 0, reinvest_pct: 1.0,
+      key, kind: 'full', label, note, show: show !== 0, reinvest_pct: 1.0,
       ...sz, ...eco,
-      yield: econ.yield,
+      yield: econ.yield, rate: econ.rate, amort: econ.amort,
       recognized_gain: rec, total_tax: tb.total, tax_breakdown: tb,
       return_metric: eco.cash_on_cash,
       net_position: sz.equity_contributed,
       tax_deferred: taxA.total - tb.total,
     };
   }
-  const B = fullExchange('B', i.b_label, i.b_show,
+  const B = fullExchange('B', i.b_label, i.b_note, i.b_show,
     { yield: i.b_yield, rate: i.b_rate, amort: i.b_amort });
-  const B2 = fullExchange('B2', i.b2_label, i.b2_show,
+  const B2 = fullExchange('B2', i.b2_label, i.b2_note, i.b2_show,
     { yield: i.b2_yield, rate: i.b2_rate, amort: i.b2_amort });
 
   // ---- C — Partial: reinvest part of equity, optionally replace debt, take rest as cash ----
@@ -281,10 +281,10 @@ function compute(i) {
   const boot_cash_kept = szC.cash_boot - taxC.total;
   const ecoC = holdEconomics({ yield: i.c_yield, rate: i.c_rate, amort: i.c_amort }, szC);
   const C = {
-    key: 'C', kind: 'partial', label: i.c_label, show: i.c_show !== 0,
+    key: 'C', kind: 'partial', label: i.c_label, note: i.c_note, show: i.c_show !== 0,
     reinvest_pct: i.partial_pct,
     ...szC, ...ecoC,
-    yield: i.c_yield,
+    yield: i.c_yield, rate: i.c_rate, amort: i.c_amort,
     recognized_gain: recC, total_tax: taxC.total, tax_breakdown: taxC,
     return_metric: null,
     mortgage_boot: Math.max(0, debt - szC.new_loan),
@@ -323,10 +323,10 @@ function compute(i) {
     ? total_annual_benefit / szD.equity_contributed
     : 0;
   const D = {
-    key: 'D', kind: 'levered', label: i.d_label, show: i.d_show !== 0,
+    key: 'D', kind: 'levered', label: i.d_label, note: i.d_note, show: i.d_show !== 0,
     reinvest_pct: i.levered_pct,
     ...szD, ...ecoD,
-    yield: i.d_yield,
+    yield: i.d_yield, rate: i.d_rate, amort: i.d_amort,
     recognized_gain: recD, total_tax: taxD.total, tax_breakdown: taxD,
     substituted_basis, depreciable_basis,
     remaining_carryover_basis, remaining_recovery, carryover_annual,

@@ -219,6 +219,7 @@ function replacementMatrix() {
     return `<tr>
       <td class="mx-chk"><input type="checkbox" data-key="${lk}_show" data-type="check" ${state[lk + '_show'] ? 'checked' : ''} aria-label="Show ${kind}"/></td>
       <td class="mx-lbl"><input class="mx-label" type="text" data-key="${lk}_label" data-type="text" value="${escHtml(state[lk + '_label'] || '')}" aria-label="${kind} label"/></td>
+      <td class="mx-lbl"><input class="mx-label mx-note-in" type="text" data-key="${lk}_note" data-type="text" value="${escHtml(state[lk + '_note'] || '')}" aria-label="${kind} sub-label"/></td>
       <td>${mxCell(lk + '_yield', 'pct')}</td>
       <td>${mxCell(lk + '_rate', 'pct')}</td>
       <td>${mxCell(lk + '_term', 'num')}</td>
@@ -228,7 +229,7 @@ function replacementMatrix() {
   return `<div class="mx-wrap">
     <div class="mx-title">Scenarios — label, show, and replacement economics</div>
     <table class="mx-table">
-      <thead><tr><th class="mx-chk">Show</th><th>Label</th><th>Cap Rate %</th><th>Loan Rate %</th><th>Term (yr)</th><th>Amort (yr)</th></tr></thead>
+      <thead><tr><th class="mx-chk">Show</th><th>Label</th><th>Sub-label (prints)</th><th>Cap Rate %</th><th>Loan Rate %</th><th>Term (yr)</th><th>Amort (yr)</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
     <p class="mx-note">B and B2 are both full exchanges (replace the full net value); only the cap rate differs, so you can compare a DST (lower, stabilized yield) against an Absolute NNN (higher yield). Cap rate drives NOI; loan rate/term/amort apply to any new debt.</p>
@@ -492,7 +493,7 @@ function renderSummary(r) {
   root.innerHTML = html;
 
   const warns = buildWarnings(r);
-  document.getElementById('warn-box').innerHTML = warns.map((w) => `<div class="warn">⚠︎ ${w}</div>`).join('');
+  document.getElementById('warn-box').innerHTML = warns.map((w) => `<div class="warn">⚠︎ ${w.text}</div>`).join('');
   const pb = document.getElementById('print-btn-sum');
   if (pb) pb.addEventListener('click', () => window.print());
 }
@@ -506,13 +507,13 @@ function filingLabel() { return state.filing_status === 'single' ? 'single filer
 function buildWarnings(r) {
   const warns = [];
   if (r.equity_available < 0)
-    warns.push('Mortgage payoff exceeds net sale proceeds; there is no equity available to exchange, so the 1031 scenarios show $0.');
+    warns.push({ id: 'no-equity', text: 'Mortgage payoff exceeds net sale proceeds; there is no equity available to exchange, so the 1031 scenarios show $0.' });
   if (r.C.show && r.C.mortgage_boot > 0)
-    warns.push(`Partial does not replace the ${money(r.inputs.current_mortgage_payoff)} mortgage, so that debt relief is also taxed as boot. The Partial taxable gain (${money(r.C.recognized_gain)}) exceeds the cash taken out (${money(r.C.cash_boot)}).`);
+    warns.push({ id: 'mortgage-boot', text: `Partial does not replace the ${money(r.inputs.current_mortgage_payoff)} mortgage, so that debt relief is also taxed as boot. The Partial taxable gain (${money(r.C.recognized_gain)}) exceeds the cash taken out (${money(r.C.cash_boot)}).` });
   else if (r.C.show && r.C.cash_boot > 0)
-    warns.push('The Partial exchange takes cash out; that cash is taxable this year as boot (recapture layer first).');
+    warns.push({ id: 'cash-boot', text: 'The Partial exchange takes cash out; that cash is taxable this year as boot (recapture layer first).' });
   if (r.C.show && r.C.boot_cash_kept < 0)
-    warns.push('In the Partial scenario the tax exceeds the cash taken out, so the shortfall must be paid from other funds.');
+    warns.push({ id: 'tax-exceeds-cash', text: 'In the Partial scenario the tax exceeds the cash taken out, so the shortfall must be paid from other funds.' });
   return warns;
 }
 
@@ -626,170 +627,229 @@ function renderScenarios(r) {
     </div>`;
 }
 
-/* ---------- PRINT REPORT (branded Excel-style, @media print) ---------- */
+/* ---------- PRINT REPORT (two Excel-style sheets, @media print) ----------
+   The prose below is fixed boilerplate that never changes between deals, and
+   every variable sits in its own cell, so the report generates straight from
+   the inputs with no copy rewriting. */
+const DASH = '–';
+const PR = {
+  how1031: [
+    'You sell, but the proceeds never reach you. A qualified intermediary holds them and applies them to the replacement property, so the gain is not recognized in the year of the sale.',
+    'Replace the value, the equity and the debt in full and the entire gain is deferred. Reinvest less than that and only the shortfall is taxed, not the whole gain.',
+    'The tax is deferred rather than erased. It carries into the basis of the new property and comes due if that property is later sold without another exchange.',
+  ],
+  whatDst: [
+    'A Delaware Statutory Trust is a fractional interest in a large, professionally managed property. The IRS treats it as like-kind, so it qualifies as replacement property in an exchange.',
+    'You own a share of the income and carry no management role at all.',
+    'The trade-offs are yield and control. Going-in yields run below what a building bought directly would return, and the interest is illiquid for the life of the hold, commonly five to ten years. It is the most reliable way to place proceeds inside the identification window.',
+  ],
+  day0: 'You close the sale. A qualified intermediary receives the proceeds, not you.',
+  day45: 'Identify the replacement property in writing. You may name up to three, and buy any or all of them.',
+  day180: 'Close on what you identified. Both deadlines run from the sale closing and there are no extensions.',
+  partialNote: 'The Partial column reinvests part of the equity and takes the rest as cash. That cash is taxed this year as boot. The share reinvested is an input and can be set to any level.',
+  inputsNote: 'Figures in blue are inputs. Tell us if any are wrong and every number in this analysis moves with them.',
+  disclaimer: 'Estimates only, not tax or legal advice. Confirm with your CPA and attorney.',
+};
+
+function prLetterhead(doctype) {
+  return `<div class="pr-head">
+      <div class="pr-brand">
+        <img class="pr-logo" src="assets/mm-logo-blue.png" alt="Marcus &amp; Millichap"/>
+        <span class="pr-vrule"></span>
+        <span class="pr-team">THE KLEIN GROUP</span>
+      </div>
+      <div class="pr-doctype">${doctype}</div>
+    </div>`;
+}
+function prFooter(n, total) {
+  return `<div class="pr-foot"><span>Marcus &amp; Millichap &nbsp;|&nbsp; The Klein Group</span>` +
+    `<span>${PR.disclaimer}</span><span>Sheet ${n} of ${total}</span></div>`;
+}
+
 function renderPrintReport(r) {
   const root = document.getElementById('print-report');
   if (!root) return;
-  const vis = r.visible;
-  const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  const span = vis.length + 1;
   const I = r.inputs;
+  const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-  // income table (fixed profiles)
-  const incs = [100000, 250000, 600000];
-  const incData = incs.map((v) => taxAtIncome(I, v));
-  const selIncome = Math.round(r.other_taxable_income);
-  const surtaxAt = (v) => taxAtIncome(I, v).stack.tax_surtax;
-  const yMore = Math.max(0, surtaxAt(600000) - surtaxAt(selIncome));
+  // Report order: sell, partial, the full exchanges, then levered.
+  const ord = ['A', 'C', 'B', 'B2', 'D'].map((k) => r[k]).filter((s) => s && s.show);
+  if (!ord.length) { root.innerHTML = ''; return; }
+  const nCol = ord.length + 1;
 
-  const header = (page) => `
-    <div class="pr-header">
-      <div class="pr-brand">
-        <img class="pr-logo" src="assets/mm-logo-blue.png" alt="Marcus &amp; Millichap"/>
-        <div class="pr-brandtext">
-          <div class="pr-team">THE KLEIN GROUP</div>
-          <div class="pr-title">1031 Exchange &amp; Financing Analysis</div>
-        </div>
-      </div>
-      <div class="pr-meta">Prepared for ${escHtml(I.prepared_for || '—')} &nbsp;|&nbsp; ${escHtml(I.property_address || '—')} &nbsp;|&nbsp; ${dateStr}</div>
-    </div>`;
+  // Tax range across the federal rate band: no stated income, no filing status.
+  const loTax = taxAtIncome(I, I.ltcg_bkt_0).tax_if_sold;
+  const hiTax = taxAtIncome(I, I.ltcg_bkt_1).tax_if_sold;
 
-  const footer = (n, total) => `
-    <div class="pr-footer">Marcus &amp; Millichap | The Klein Group &nbsp;|&nbsp; Estimates only, not tax or legal advice. Confirm with your CPA and attorney. &nbsp;|&nbsp; Page ${n} of ${total}</div>`;
+  /* ---- sheet 1: the comparison ---- */
+  let z = 0;
+  const band = (t) => { z = 0; return `<tr class="pr-band"><td colspan="${nCol}">${t}</td></tr>`; };
+  const row = (label, fn, cls) => {
+    const stripe = (z++ % 2 === 1) ? ' pr-zebra' : '';
+    const cells = ord.map((s) => {
+      const v = fn(s);
+      return `<td${v === DASH ? ' class="pr-dash"' : ''}>${v}</td>`;
+    }).join('');
+    return `<tr class="${(cls || '') + stripe}"><th scope="row">${label}</th>${cells}</tr>`;
+  };
 
-  // ---- main grid ----
-  const sec = (label) => `<tr class="pr-sec"><td colspan="${span}">${label}</td></tr>`;
-  const trow = (label, cells, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td class="pr-lbl">${label}</td>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
-  const col = (fn) => vis.map(fn);
+  // Band spanning a contiguous run of full exchanges (DST vs NNN).
+  let groupRow = '';
+  const fullIx = [];
+  ord.forEach((s, i) => { if (s.kind === 'full') fullIx.push(i); });
+  if (fullIx.length > 1 && fullIx[fullIx.length - 1] - fullIx[0] + 1 === fullIx.length) {
+    const a = fullIx[0], b = fullIx[fullIx.length - 1];
+    let cells = '<td class="pr-blank"></td>';
+    let i = 0;
+    while (i < ord.length) {
+      if (i === a) { cells += `<td class="pr-group" colspan="${fullIx.length}">FULL EXCHANGE</td>`; i = b + 1; }
+      else { cells += '<td class="pr-blank"></td>'; i++; }
+    }
+    groupRow = `<tr>${cells}</tr>`;
+  }
 
-  const gridRows = [
-    sec('SALE'),
-    trow('Sale Price', col(() => acct(I.sale_price))),
-    trow('Less: Selling Costs', col(() => acct(-r.transaction_costs))),
-    trow('Net Sale Price (value to replace)', col(() => acct(r.amount_realized)), 'pr-subtotal'),
-    trow('Less: Mortgage Payoff', col(() => acct(-I.current_mortgage_payoff))),
-    trow('Realized Gain', col(() => acct(r.realized_gain))),
+  const headRow = `<tr><th scope="col">Scenario</th>${ord.map((s) =>
+    `<th scope="col">${escHtml(s.label)}${s.note ? `<span class="pr-sublbl">${escHtml(s.note)}</span>` : ''}</th>`).join('')}</tr>`;
 
-    sec('TAX DUE AT SALE'),
-    trow('Gain Recognized This Year', col((s) => s.recognized_gain > 0 ? acct(s.recognized_gain) : acct(0))),
-    trow('Total Tax Due This Year', col((s) => s.recognized_gain > 0 ? acct(s.total_tax) : acct(0)), 'pr-subtotal'),
-    trow('Tax Deferred vs. Selling', col((s) => s.kind === 'sell' ? acct(0) : acct(s.tax_deferred))),
+  const grid = `<table class="pr-grid">
+      <colgroup><col class="pr-c0"/>${ord.map(() => '<col/>').join('')}</colgroup>
+      <thead>${groupRow}${headRow}</thead>
+      <tbody>
+        ${band('THE SALE')}
+        ${row('Sale price', () => acct(I.sale_price))}
+        ${row('Less selling costs', () => acct(-r.transaction_costs))}
+        ${row('Net sale price', () => acct(r.amount_realized), 'pr-sub')}
+        ${band('THE GAIN AND THE TAX')}
+        ${row('Taxable gain recognized this year', (s) => s.recognized_gain > 0 ? acct(s.recognized_gain) : DASH)}
+        ${row('Tax deferred versus selling', (s) => s.kind === 'sell' ? DASH : acct(s.tax_deferred))}
+        ${band('THE REPLACEMENT PROPERTY')}
+        ${row('Replacement property value', (s) => s.kind === 'sell' ? DASH : acct(s.replacement_value))}
+        ${row('Equity reinvested', (s) => s.kind === 'sell' ? DASH : acct(s.equity_contributed))}
+        ${row('New loan', (s) => s.kind === 'sell' ? DASH : acct(s.new_loan))}
+        ${row('Cash taken out, taxed as boot', (s) => (s.kind === 'partial' && s.cash_boot > 0) ? acct(s.cash_boot) : DASH)}
+        ${band('ANNUAL CASH FLOW')}
+        ${row('Cap rate on the replacement', (s) => s.kind === 'sell' ? DASH : pct(s.yield, 2))}
+        ${row('Net operating income', (s) => s.kind === 'sell' ? DASH : acct(s.noi))}
+        ${row('Less loan payments', (s) => s.kind === 'sell' ? DASH : acct(s.annual_debt_service))}
+        ${row('Cash flow to you, each year', (s) => s.kind === 'sell' ? DASH : acct(s.net_cash_flow), 'pr-cf')}
+        ${band('WHERE YOU LAND')}
+        ${row('Total tax paid', (s) => s.total_tax > 0 ? acct(s.total_tax) : DASH, 'pr-taxrow')}
+        ${row('What you keep or reinvest', (s) => acct(s.net_position), 'pr-total')}
+      </tbody>
+    </table>`;
 
-    sec('REINVESTMENT'),
-    trow('New Property Value', col((s) => s.kind === 'sell' ? acct(0) : acct(s.replacement_value))),
-    trow('Equity Invested', col((s) => s.kind === 'sell' ? acct(0) : acct(s.equity_contributed))),
-    trow('New Loan', col((s) => s.kind === 'sell' ? acct(0) : acct(s.new_loan))),
-    trow('Cash Boot Taken', col((s) => s.kind === 'partial' ? acct(s.cash_boot) : acct(0))),
+  const notes = [
+    `Figures assume other taxable income inside the ${acct(I.ltcg_bkt_0)} to ${acct(I.ltcg_bkt_1)} federal rate band. Across that band the total tax on a sale moves between ${acct(loTax)} and ${acct(hiTax)}. Sheet 2 sets out the calculation.`,
+  ];
+  const hasPartial = ord.some((s) => s.kind === 'partial');
+  if (hasPartial) notes.push(PR.partialNote);
+  // the static partial note already covers plain cash boot, so don't say it twice
+  buildWarnings(r).forEach((w) => {
+    if (hasPartial && w.id === 'cash-boot') return;
+    notes.push(w.text);
+  });
 
-    sec('ANNUAL INCOME'),
-    trow('Cap Rate', col((s) => s.kind === 'sell' ? '–' : pct(s.yield))),
-    trow('Annual NOI', col((s) => s.kind === 'sell' ? acct(0) : acct(s.noi))),
-    trow('Annual Debt Service', col((s) => s.kind === 'sell' ? acct(0) : acct(s.annual_debt_service))),
-    trow('Net Cash Flow After Debt', col((s) => s.kind === 'sell' ? acct(0) : acct(s.net_cash_flow))),
+  const sheet1 = `<section class="pr-page">
+      ${prLetterhead('1031 Exchange &amp; Financing Analysis')}
+      <table class="pr-id"><tbody><tr>
+        <th scope="row">Property</th><td>${escHtml(I.property_address || DASH)}</td>
+        <th scope="row">Prepared for</th><td>${escHtml(I.prepared_for || DASH)}</td>
+        <th scope="row">Date</th><td>${dateStr}</td>
+      </tr></tbody></table>
+      ${grid}
+      <ol class="pr-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ol>
+      ${prFooter(1, 2)}
+    </section>`;
 
-    sec('NET POSITION'),
-    trow('Net Proceeds / Equity Position', col((s) => acct(s.net_position)), 'pr-total'),
+  /* ---- sheet 2: how it works ---- */
+  const taxed = ord.filter((s) => s.recognized_gain > 0);
+  const part = (s, i) => ((s.tax_breakdown.ltcg_parts || [])[i] || { amount: 0, tax: 0 });
+  const show0 = taxed.some((s) => part(s, 0).amount > 0);
+  let tz = 0;
+  const taxRow = (label, fn, cls) => {
+    const stripe = (tz++ % 2 === 1) ? ' pr-zebra' : '';
+    return `<tr class="${(cls || '') + stripe}"><th scope="row">${label}</th>${taxed.map((s) => {
+      const v = fn(s);
+      return `<td${v === DASH ? ' class="pr-dash"' : ''}>${v}</td>`;
+    }).join('')}</tr>`;
+  };
+  const taxBox = taxed.length ? `<table class="pr-tax">
+      <thead><tr><th scope="col">Component</th>${taxed.map((s) => `<th scope="col">${escHtml(s.label)}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${taxRow(`Depreciation recapture, ${pct(I.rate_recapture, 0)}`, (s) => acct(s.tax_breakdown.tax_recapture))}
+        ${show0 ? taxRow(`Federal capital gains, ${pct(I.rate_ltcg_0, 0)} band`, (s) => acct(part(s, 0).tax)) : ''}
+        ${taxRow(`Federal capital gains, ${pct(I.rate_ltcg_15, 0)} band`, (s) => acct(part(s, 1).tax))}
+        ${taxRow(`Federal capital gains, ${pct(I.rate_ltcg, 0)} band`, (s) => acct(part(s, 2).tax))}
+        ${taxRow(`Net investment income tax, ${pct(I.rate_niit)}`, (s) => acct(s.tax_breakdown.tax_niit))}
+        ${taxRow(`Massachusetts income tax, ${pct(I.ma_rate, 0)}`, (s) => acct(s.tax_breakdown.tax_ma))}
+        ${taxRow(`Massachusetts surtax, ${pct(I.ma_surtax_rate, 0)}`, (s) => acct(s.tax_breakdown.tax_surtax))}
+        ${I.cost_seg_flag === 1 ? taxRow('Cost segregation recapture', (s) => acct(s.tax_breakdown.tax_1245)) : ''}
+        <tr class="pr-taxtotal"><th scope="row">Total tax paid</th>${taxed.map((s) => `<td>${acct(s.total_tax)}</td>`).join('')}</tr>
+        <tr class="pr-range"><th scope="row">Range across the income band</th><td colspan="${taxed.length}">${acct(loTax)} to ${acct(hiTax)}</td></tr>
+      </tbody>
+    </table>`
+    : `<div class="pr-boxbody"><p>No gain is recognized in any selected scenario, so no tax is due this year.</p></div>`;
+
+  // Assumptions: blue marks a true input, black a computed figure.
+  const aRow = (label, val, isIn) => `<tr><th scope="row">${label}</th><td${isIn ? ' class="pr-in"' : ''}>${val}</td></tr>`;
+  const exch = ord.filter((s) => s.kind !== 'sell');
+  const uniqRate = exch.filter((s, i, a) => a.findIndex((x) => x.rate === s.rate) === i);
+  const uniqAmort = exch.filter((s, i, a) => a.findIndex((x) => x.amort === s.amort) === i);
+  const loanRate = (uniqRate.length === 1 && uniqAmort.length === 1)
+    ? `${pct(exch[0].rate, 2)}, ${exch[0].amort} yr amort`
+    : 'varies by scenario';
+
+  const asmA = [
+    aRow('Sale price', acct(I.sale_price), 1),
+    aRow('Original purchase', acct(I.original_purchase_price), 1),
+    aRow('Capital improvements', I.capital_improvements > 0 ? acct(I.capital_improvements) : 'none', 1),
+    aRow('Year purchased', I.year_purchased, 1),
+    aRow('Years held', r.years_held, 0),
+    aRow('Land share', pct(r.land_pct, 1) + (r.land_source === 'per assessor' ? ', per assessor' : ''), r.land_source === 'per assessor' ? 0 : 1),
+    aRow('Recovery life', I.recovery_life + ' yrs', 1),
+    aRow('Depreciation taken', acct(r.accumulated_depreciation), 0),
+    aRow('Selling costs', acct(r.transaction_costs), 0),
+    aRow('Mortgage payoff', acct(I.current_mortgage_payoff), 1),
   ].join('');
 
-  const gridTable = `
-    <table class="pr-grid">
-      <colgroup><col class="pr-c0"/>${vis.map(() => '<col/>').join('')}</colgroup>
-      <thead><tr><th class="pr-lbl">&nbsp;</th>${vis.map((s) => `<th>${escHtml(s.label)}</th>`).join('')}</tr></thead>
-      <tbody>${gridRows}</tbody>
-    </table>`;
+  const asmB = [
+    ord.some((s) => s.kind === 'partial') ? aRow('Partial: share reinvested', pct(I.partial_pct, 0), 1) : '',
+    ord.some((s) => s.kind === 'levered') ? aRow('Levered: buy-up multiple', I.levered_pct.toFixed(2) + '×', 1) : '',
+  ].concat(exch.map((s) => aRow('Cap rate, ' + escHtml(s.label), pct(s.yield, 2), 1)))
+   .concat([aRow('Loan rate', loanRate, 1)])
+   .filter(Boolean).join('');
 
-  // ---- income sensitivity table ----
-  const incTable = `
-    <div class="pr-h2">Estimated tax by other income</div>
-    <table class="pr-grid pr-inc">
-      <thead><tr><th class="pr-lbl">If sold this year</th>${incs.map((v) => `<th>${acct(v)}${v === 600000 ? '+' : ''} income</th>`).join('')}</tr></thead>
-      <tbody>
-        <tr><td class="pr-lbl">Tax if sold (Sell &amp; Pay)</td>${incData.map((d) => `<td>${acct(d.tax_if_sold)}</td>`).join('')}</tr>
-        <tr><td class="pr-lbl">Net proceeds after tax</td>${incData.map((d) => `<td>${acct(d.net_after_tax)}</td>`).join('')}</tr>
-        <tr class="pr-subtotal"><td class="pr-lbl">Tax deferred with a full 1031</td>${incData.map((d) => `<td>${acct(d.tax_deferred_full)}</td>`).join('')}</tr>
-      </tbody>
-    </table>
-    <p class="pr-smallnote">Main table uses the selected profile: ${acct(selIncome)} other taxable income (${escHtml(profileLabel())}).</p>`;
-
-  // ---- footnotes ----
-  const warns = buildWarnings(r);
-  const fixedNote = `Assumes approximately ${acct(selIncome)} other taxable income, ${filingLabel()}. Higher incomes may add up to ~${acct(yMore)} in MA surtax. Your CPA can refine.`;
-  const notes = [fixedNote, ...warns];
-  const footnotes = `<ol class="pr-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ol>`;
-
-  // ---- page 2: assumptions block (blue inputs) ----
-  const inRow = (label, val) => `<div class="pr-arow"><span class="pr-albl">${label}</span><span class="pr-ain">${val}</span></div>`;
-  const outRow = (label, val) => `<div class="pr-arow"><span class="pr-albl">${label}</span><span class="pr-aout">${val}</span></div>`;
-  const assumptions = `
-    <div class="pr-h2">Assumptions &amp; inputs</div>
-    <div class="pr-agrid">
-      <div class="pr-acol">
-        <div class="pr-asub">Property &amp; sale</div>
-        ${inRow('Estimated Sale Price', acct(I.sale_price))}
-        ${inRow('Original Purchase Price', acct(I.original_purchase_price))}
-        ${inRow('Capital Improvements', acct(I.capital_improvements))}
-        ${inRow('Current Mortgage Payoff', acct(I.current_mortgage_payoff))}
-        ${inRow('Land % used', pct(r.land_pct) + ' (' + r.land_source + ')')}
-        ${inRow('Recovery Life', I.recovery_life + ' yrs')}
-        ${inRow('Years Held', r.years_held + ' yrs')}
-        ${outRow('Accumulated Depreciation', acct(r.accumulated_depreciation))}
-        ${outRow('Adjusted Basis', acct(r.adjusted_basis))}
+  const sheet2 = `<section class="pr-page">
+      ${prLetterhead('How the exchange works')}
+      <div class="pr-box">
+        <div class="pr-boxhead">THE EXCHANGE TIMELINE</div>
+        <div class="pr-tl">
+          <div class="pr-tlcell"><div class="pr-tlday">DAY 0</div><div class="pr-tltext">${PR.day0}</div></div>
+          <div class="pr-tlcell"><div class="pr-tlday">DAY 45</div><div class="pr-tltext">${PR.day45}</div>
+            <div class="pr-tlboxes"><span class="pr-tlbox">1</span><span class="pr-tlbox">2</span><span class="pr-tlbox">3</span></div></div>
+          <div class="pr-tlcell"><div class="pr-tlday">DAY 180</div><div class="pr-tltext">${PR.day180}</div></div>
+        </div>
       </div>
-      <div class="pr-acol">
-        <div class="pr-asub">Income &amp; tax rates</div>
-        ${inRow('Other Taxable Income', acct(r.other_taxable_income))}
-        ${inRow('Filing Status', filingLabel())}
-        ${inRow('§1250 Recapture rate', pct(I.rate_recapture, 0))}
-        ${inRow('Federal LTCG brackets', pct(I.rate_ltcg_0,0) + ' / ' + pct(I.rate_ltcg_15,0) + ' / ' + pct(I.rate_ltcg,0))}
-        ${inRow('LTCG breakpoints', acct(I.ltcg_bkt_0) + ' / ' + acct(I.ltcg_bkt_1))}
-        ${inRow('NIIT rate / threshold', pct(I.rate_niit) + ' over ' + acct(I.niit_threshold))}
-        ${inRow('MA rate + surtax', pct(I.ma_rate,1) + ' + ' + pct(I.ma_surtax_rate,0) + ' over ' + acct(I.ma_surtax_threshold))}
-        ${inRow('Broker / Transfer / Atty / Fixed', pct(I.broker_pct,1) + ' · $' + I.transfer_rate + '/500 · ' + acct(I.attorney_costs) + ' · ' + acct(I.fixed_fees))}
+      <div class="pr-2col">
+        <section class="pr-box"><h2 class="pr-boxhead">HOW A 1031 EXCHANGE WORKS</h2>
+          <div class="pr-boxbody">${PR.how1031.map((p) => `<p>${p}</p>`).join('')}</div></section>
+        <section class="pr-box"><h2 class="pr-boxhead">WHAT A DST IS</h2>
+          <div class="pr-boxbody">${PR.whatDst.map((p) => `<p>${p}</p>`).join('')}</div></section>
       </div>
-    </div>`;
-
-  // ---- page 2: full tax stack per scenario ----
-  const stackRows = (s) => {
-    const tb = s.tax_breakdown;
-    const p = tb.ltcg_parts || [];
-    const g = (idx) => (p[idx] || { tax: 0 }).tax;
-    const vals = s.recognized_gain > 0;
-    return `<tr><td class="pr-lbl">${escHtml(s.label)}</td>
-      <td>${acct(s.recognized_gain)}</td>
-      <td>${vals ? acct(tb.tax_recapture) : '–'}</td>
-      <td>${vals ? acct(g(0)) : '–'}</td>
-      <td>${vals ? acct(g(1)) : '–'}</td>
-      <td>${vals ? acct(g(2)) : '–'}</td>
-      <td>${vals ? acct(tb.tax_niit) : '–'}</td>
-      <td>${vals ? acct(tb.tax_ma) : '–'}</td>
-      <td>${vals ? acct(tb.tax_surtax) : '–'}</td>
-      <td class="pr-total-cell">${acct(tb.total)}</td></tr>`;
-  };
-  const stackTable = `
-    <div class="pr-h2">Full tax stack by scenario</div>
-    <table class="pr-grid pr-stack">
-      <thead><tr>
-        <th class="pr-lbl">Scenario</th><th>Recognized</th><th>§1250 25%</th>
-        <th>Fed ${pct(I.rate_ltcg_0,0)}</th><th>Fed ${pct(I.rate_ltcg_15,0)}</th><th>Fed ${pct(I.rate_ltcg,0)}</th>
-        <th>NIIT</th><th>MA 5%</th><th>MA 4%</th><th>Total</th>
-      </tr></thead>
-      <tbody>${vis.map(stackRows).join('')}</tbody>
-    </table>`;
-
-  root.innerHTML = `
-    <section class="pr-page">
-      ${header(1)}
-      ${gridTable}
-      ${incTable}
-      ${footnotes}
-      ${footer(1, 2)}
-    </section>
-    <section class="pr-page pr-page2">
-      ${header(2)}
-      ${assumptions}
-      ${stackTable}
-      ${footer(2, 2)}
+      <div class="pr-2col">
+        <section class="pr-box"><h2 class="pr-boxhead">HOW THE TAX IS CALCULATED</h2>${taxBox}</section>
+        <section class="pr-box"><h2 class="pr-boxhead">ASSUMPTIONS AND INPUTS</h2>
+          <div class="pr-asmwrap">
+            <table class="pr-asm pr-asmcol1"><tbody>${asmA}</tbody></table>
+            <table class="pr-asm"><tbody>${asmB}</tbody></table>
+          </div>
+          <div class="pr-asmnote">${PR.inputsNote}</div>
+        </section>
+      </div>
+      ${prFooter(2, 2)}
     </section>`;
+
+  root.innerHTML = sheet1 + sheet2;
 }
 
 /* ---------- Financing Tool ---------- */

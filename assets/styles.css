@@ -245,62 +245,100 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
 #deal-save { position: static; }
 
 /* ============================================================
-   PRINT — branded Excel-style client report (US Letter landscape).
-   On screen everything is hidden except #print-report (which is itself
-   display:none on screen). The on-screen app is untouched.
+   PRINT — the client report: two Excel-template sheets, US Letter
+   landscape. On screen everything is hidden except #print-report
+   (itself display:none on screen), so the app is untouched.
+   Sizes are px at 96dpi, matching the approved artboards 1:1.
    ============================================================ */
 @media print {
-  @page { size: letter landscape; margin: 0.5in; }
+  @page { size: letter landscape; margin: 0.4in; }
   html, body { background: #fff !important; }
   body > * { display: none !important; }
   #print-report { display: block !important; }
 
   #print-report {
-    font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
-    color: #111; font-size: 9pt; line-height: 1.2;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #16202b; font-size: 11.5px; line-height: 1.45;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   #print-report * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-  .pr-page { position: relative; min-height: 6.8in; padding-bottom: 15pt; page-break-after: always; break-after: page; }
+  .pr-page { height: 7.62in; display: flex; flex-direction: column; page-break-after: always; break-after: page; }
   .pr-page:last-child { page-break-after: auto; break-after: auto; }
 
-  /* header band */
-  .pr-header { border-bottom: 2pt solid var(--pr-navy); padding-bottom: 5pt; margin-bottom: 7pt; }
-  .pr-brand { display: flex; align-items: center; gap: 11pt; }
-  .pr-logo { height: 22pt; width: auto; }
-  .pr-team { font-weight: 700; font-size: 13pt; letter-spacing: .06em; color: var(--pr-navy); line-height: 1; }
-  .pr-title { font-size: 9.5pt; color: #444; margin-top: 2pt; }
-  .pr-meta { margin-top: 4pt; font-size: 8.5pt; color: #333; }
+  /* letterhead */
+  .pr-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding-bottom: 7px; border-bottom: 2.5px solid var(--pr-navy); }
+  .pr-brand { display: flex; align-items: center; gap: 14px; }
+  .pr-logo { height: 26px; width: auto; display: block; }
+  .pr-vrule { width: 1px; height: 27px; background: #b8c4d0; display: block; }
+  .pr-team { font-family: var(--font-serif); font-weight: 700; font-size: 19px; letter-spacing: .04em; color: var(--pr-navy); line-height: 1; }
+  .pr-doctype { font-size: 13px; font-weight: 700; letter-spacing: .06em; color: #5a6b7b; text-transform: uppercase; }
 
-  /* grid tables */
-  table.pr-grid { width: 100%; border-collapse: collapse; margin: 0 0 5pt; table-layout: fixed; }
-  .pr-grid col.pr-c0 { width: 32%; }
-  .pr-grid th, .pr-grid td { border: 0.5pt solid #c9c9c9; padding: 1.3pt 6pt; text-align: right; font-variant-numeric: tabular-nums; overflow: hidden; }
-  .pr-grid th.pr-lbl, .pr-grid td.pr-lbl { text-align: left; }
-  .pr-grid thead th { background: var(--pr-navy); color: #fff; font-weight: 700; font-size: 8.5pt; }
-  .pr-grid tbody tr:nth-child(even) td { background: #f5f7fa; }
-  .pr-sec td { background: var(--pr-navy) !important; color: #fff; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; font-size: 8pt; padding-top: 1.9pt; padding-bottom: 1.9pt; }
-  .pr-subtotal td { border-top: 0.75pt solid #7a7a7a; font-weight: 700; background: #eef3f8 !important; }
-  .pr-total td { border-top: 1pt solid var(--pr-navy); border-bottom: 3pt double var(--pr-navy); font-weight: 700; background: #e8eff7 !important; color: var(--pr-navy); font-size: 10pt; }
+  /* deal identification strip */
+  table.pr-id { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 10px; }
+  .pr-id th { text-align: left; padding: 4px 8px; border: 1px solid #b8c4d0; background: #eef2f6; font-weight: 700; color: #5a6b7b; width: 12%; }
+  .pr-id td { padding: 4px 8px; border: 1px solid #b8c4d0; font-weight: 700; }
 
-  .pr-h2 { font-weight: 700; color: var(--pr-navy); font-size: 9.5pt; text-transform: uppercase; letter-spacing: .05em; margin: 5pt 0 3pt; }
-  .pr-smallnote { font-size: 7.5pt; color: #666; margin: 2pt 0 0; }
+  /* the comparison grid */
+  table.pr-grid { width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; margin-top: 11px; table-layout: fixed; }
+  .pr-grid col.pr-c0 { width: 25%; }
+  .pr-grid th, .pr-grid td { border: 1px solid #b8c4d0; padding: 3px 8px; text-align: right; overflow: hidden; }
+  .pr-grid th[scope="row"] { text-align: left; font-weight: 400; }
+  .pr-grid thead th { background: var(--pr-navy); color: #fff; font-weight: 700; font-size: 11px; vertical-align: bottom; border-color: var(--pr-navy); }
+  .pr-grid thead th:first-child { text-align: left; }
+  .pr-sublbl { display: block; font-weight: 400; font-size: 9.5px; color: #c3d4e6; margin-top: 2px; }
+  .pr-blank { border: none !important; background: none !important; padding: 0 !important; }
+  .pr-group { background: var(--pr-navy); color: #fff; font-weight: 700; font-size: 10.5px; letter-spacing: .1em; text-align: center !important; border: 1px solid var(--pr-navy) !important; padding: 3px 6px !important; }
+  .pr-band td { background: var(--pr-navy); color: #fff; font-weight: 700; font-size: 10.5px; letter-spacing: .1em; text-align: left; border: 1px solid var(--pr-navy); padding: 3px 8px; }
+  .pr-grid tbody tr.pr-zebra th, .pr-grid tbody tr.pr-zebra td { background: #f2f5f8; }
+  .pr-grid tr.pr-sub th, .pr-grid tr.pr-sub td { font-weight: 700; }
+  .pr-grid tr.pr-cf th { font-weight: 700; }
+  .pr-grid tr.pr-cf td { font-weight: 700; color: #1f6b5a; }
+  .pr-grid tr.pr-taxrow th { font-weight: 700; }
+  .pr-grid tr.pr-taxrow td { font-weight: 700; color: #8f4a2e; padding: 5px 8px; }
+  .pr-grid tr.pr-total th, .pr-grid tr.pr-total td { background: #dce6f1 !important; border: 1px solid var(--pr-navy); color: var(--pr-navy); font-weight: 700; padding: 7px 8px; }
+  .pr-grid tr.pr-total th { font-size: 12px; }
+  .pr-grid tr.pr-total td { font-size: 13px; }
+  .pr-dash { color: #5a6b7b !important; font-weight: 400 !important; }
 
-  ol.pr-notes { margin: 5pt 0 0; padding-left: 14pt; }
-  ol.pr-notes li { font-size: 7.5pt; color: #444; margin-bottom: 1.5pt; }
+  ol.pr-notes { margin: 10px 0 0; padding-left: 15px; font-size: 10.5px; line-height: 1.45; color: #5a6b7b; }
+  .pr-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid #b8c4d0; display: flex; justify-content: space-between; gap: 16px; font-size: 10px; color: #767676; }
 
-  .pr-footer { position: absolute; bottom: 0; left: 0; right: 0; border-top: 0.5pt solid #c9c9c9; padding-top: 3pt; font-size: 7.5pt; color: #666; text-align: center; }
+  /* sheet 2 — boxed blocks */
+  .pr-box { border: 1px solid var(--pr-navy); }
+  .pr-boxhead { background: var(--pr-navy); color: #fff; font-weight: 700; font-size: 10.5px; letter-spacing: .1em; padding: 4px 8px; margin: 0; }
+  .pr-boxbody { padding: 9px 13px 10px; font-size: 11.5px; line-height: 1.5; }
+  .pr-boxbody p { margin: 0 0 6px; }
+  .pr-boxbody p:last-child { margin-bottom: 0; }
+  .pr-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; margin-top: 10px; align-items: start; }
+  #print-report .pr-page > .pr-box { margin-top: 10px; }
 
-  /* page 2 — assumptions block (blue = inputs) */
-  .pr-agrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26pt; margin-bottom: 2pt; }
-  .pr-asub { font-weight: 700; color: var(--pr-navy); font-size: 8.5pt; text-transform: uppercase; letter-spacing: .04em; border-bottom: 0.5pt solid #c9c9c9; padding-bottom: 2pt; margin-bottom: 3pt; }
-  .pr-arow { display: flex; justify-content: space-between; gap: 10pt; padding: 1.5pt 0; border-bottom: 0.4pt dotted #ddd; }
-  .pr-albl { color: #333; }
-  .pr-ain { font-weight: 700; color: #0000ff; font-variant-numeric: tabular-nums; text-align: right; }
-  .pr-aout { font-weight: 700; color: #111; font-variant-numeric: tabular-nums; text-align: right; }
+  /* timeline */
+  .pr-tl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .pr-tlcell { padding: 9px 13px 10px; border-right: 1px solid #b8c4d0; }
+  .pr-tlcell:last-child { border-right: none; }
+  .pr-tlday { font-weight: 700; font-size: 12.5px; color: var(--pr-navy); }
+  .pr-tltext { font-size: 11.5px; line-height: 1.5; margin-top: 5px; }
+  .pr-tlboxes { display: flex; gap: 7px; margin-top: 6px; }
+  .pr-tlbox { flex: 1 1 0; border: 1px solid var(--pr-navy); text-align: center; padding: 4px 0; font-size: 11px; font-weight: 700; color: var(--pr-navy); }
 
-  .pr-stack th, .pr-stack td { font-size: 8pt; padding: 2pt 4pt; }
-  .pr-stack col.pr-c0, .pr-inc col.pr-c0 { width: auto; }
-  .pr-total-cell { font-weight: 700; background: #e8eff7 !important; color: var(--pr-navy); }
+  /* tax calculation */
+  table.pr-tax { width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .pr-tax thead th { background: #eef2f6; text-align: right; padding: 5px 10px; border-bottom: 1px solid #b8c4d0; border-left: 1px solid #d4dce4; font-weight: 700; font-size: 10.5px; color: var(--pr-navy); }
+  .pr-tax thead th:first-child { text-align: left; border-left: none; color: #5a6b7b; }
+  .pr-tax th[scope="row"] { text-align: left; font-weight: 400; padding: 3.5px 10px; border-bottom: 1px solid #d4dce4; }
+  .pr-tax td { text-align: right; padding: 3.5px 10px; border-bottom: 1px solid #d4dce4; border-left: 1px solid #d4dce4; }
+  .pr-tax tr.pr-zebra th, .pr-tax tr.pr-zebra td { background: #f2f5f8; }
+  .pr-tax tr.pr-taxtotal th, .pr-tax tr.pr-taxtotal td { background: #dce6f1; border-top: 1px solid var(--pr-navy); border-bottom: none; font-weight: 700; color: var(--pr-navy); padding: 6px 10px; }
+  .pr-tax tr.pr-range th, .pr-tax tr.pr-range td { border-top: 1px solid #d4dce4; border-bottom: none; background: none; color: #5a6b7b; font-size: 10.5px; padding: 5px 10px; font-weight: 400; }
+
+  /* assumptions */
+  .pr-asmwrap { display: grid; grid-template-columns: 1fr 1fr; font-size: 11px; }
+  table.pr-asm { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .pr-asm th[scope="row"] { text-align: left; font-weight: 400; padding: 3.5px 9px; border-bottom: 1px solid #d4dce4; color: #5a6b7b; }
+  .pr-asm td { text-align: right; padding: 3.5px 9px; border-bottom: 1px solid #d4dce4; font-weight: 700; }
+  .pr-asm tr:last-child th, .pr-asm tr:last-child td { border-bottom: none; }
+  .pr-asmcol1 { border-right: 1px solid #b8c4d0; }
+  .pr-in { color: #0000c0; }
+  .pr-asmnote { padding: 5px 10px 6px; font-size: 10px; line-height: 1.45; color: #5a6b7b; border-top: 1px solid #d4dce4; }
 }

@@ -9,8 +9,12 @@ deployed copy; Cloudflare Pages auto-deploys on push to `main`).
 
 Scenarios: **A — Sell & Pay**, **B / B2 — two full §1031 exchanges** (defaults: *1031 into DST* at
 4.75% and *1031 into Absolute NNN* at 6.25%, so you can compare product types), **C — Partial**,
-**D — Leveraged**. Every scenario has an editable label, a show/hide toggle, and its own cap rate
-and financing.
+**D — Leveraged** (1.25× buy-up at a 7.25% cap). Every scenario has an editable label, an editable
+sub-label that prints under the column head, a show/hide toggle, and its own cap rate and financing.
+
+> On the levered column: the loan constant at 6.4% over a 30-year amortization is **7.51%**, so at a
+> 7.25% cap the extra debt is roughly break-even. The higher cash flow comes from buying a
+> higher-yielding asset, not from the leverage. Raise the cap above 7.51% for genuinely positive leverage.
 
 ---
 
@@ -107,8 +111,31 @@ Past the recovery life the carryover tier is **0** — it never divides by a flo
 7. **Income profile** — Moderate/Typical/High + override, never framed as asking the client.
 8. **Second full exchange (B2)** + editable labels and show/hide on every scenario (DST vs. NNN).
 9. **Prepared-for / property-address** inputs that print on the report.
-10. **New print report** — a branded, Excel-style, 2-page US-Letter-landscape client report
-    (`@media print`), separate from the unchanged on-screen app.
+10. **New client report** — a branded, two-sheet, US-Letter-landscape report (`@media print`),
+    separate from the unchanged on-screen app. See below.
+
+## The client report (`@media print`)
+
+Two sheets, US Letter landscape, 0.4in margins, built as an Excel template: Arial, a gridline on
+every cell, navy `#002855` section bands, blue figures for inputs, `$#,##0` with parentheses for
+negatives and an en-dash for zero.
+
+- **Sheet 1, the comparison.** Letterhead, a property/prepared-for/date strip, then one grid:
+  Sell & Pay, Partial, the two full exchanges under a spanning **FULL EXCHANGE** band, and Levered.
+  Sections are THE SALE, THE GAIN AND THE TAX, THE REPLACEMENT PROPERTY, ANNUAL CASH FLOW and
+  WHERE YOU LAND (total tax paid, then what you keep or reinvest). Numbered footnotes below.
+- **Sheet 2, how it works.** The 45/180 timeline including the three-property identification rule,
+  plain-English explainers for a 1031 exchange and a DST, the tax calculation per taxed scenario,
+  and every assumption.
+
+**It generates from the inputs.** The prose is fixed boilerplate that never changes between deals,
+and every variable sits in its own cell, so no copy is rewritten per deal. Hiding a scenario drops
+its column and the FULL EXCHANGE band collapses on its own.
+
+**The income assumption is never stated.** Rather than claim to know the client's income, sheet 1
+footnotes the federal rate band (`ltcg_bkt_0` to `ltcg_bkt_1`) and the tax range across it, and
+sheet 2 repeats that range under the tax total. Filing status does not appear on the report; note
+that the bracket thresholds shipped are the joint-return figures.
 
 ### Verified figures
 
