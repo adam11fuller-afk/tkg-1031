@@ -124,7 +124,8 @@ input:focus, select:focus { outline: 2px solid var(--navy); outline-offset: 1px;
 .mx-table td.mx-chk input { width: auto; accent-color: var(--navy); }
 .mx-label { width: 150px; text-align: left; font: inherit; background: var(--input-fill); border: 1px solid #c2d4e6; border-radius: 6px; padding: 6px 8px; color: var(--navy); font-weight: 500; }
 .mx-label:focus { outline: 2px solid var(--navy); outline-offset: 1px; }
-#print-report { display: none; }
+/* #print-report is parked off-screen rather than display:none — it needs a real
+   layout box so the fit-to-page pass can measure it. See the PRINT block. */
 
 /* read-only calculated values */
 .calc-row { display: grid; grid-template-columns: 1fr 180px; gap: 10px 16px; align-items: center; padding: 9px 0; border-bottom: 1px solid #eef2f6; }
@@ -246,16 +247,32 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
 
 /* ============================================================
    PRINT — the client report: two Excel-template sheets, US Letter
-   landscape. On screen everything is hidden except #print-report
-   (itself display:none on screen), so the app is untouched.
+   landscape. In print everything is hidden except #print-report,
+   so the app is untouched. On screen the report is still laid out,
+   at the exact printable width, but parked out of sight: that is
+   what lets fitPrintPages() measure the true print height and
+   scale each sheet to one page before the dialog opens.
    Sizes are px at 96dpi, matching the approved artboards 1:1.
    ============================================================ */
+@media screen {
+  #print-report {
+    position: fixed; top: 0; left: -20000px; z-index: -1;
+    width: 10.2in;   /* 11in landscape less 2 × 0.4in margins */
+    pointer-events: none;
+  }
+}
 @media print {
   @page { size: letter landscape; margin: 0.4in; }
   html, body { background: #fff !important; }
   body > * { display: none !important; }
-  #print-report { display: block !important; }
+  #print-report {
+    display: block !important;
+    position: static; top: auto; left: auto; width: auto;
+  }
+}
 
+/* The report's own typography and layout. Deliberately NOT inside @media print —
+   the measurements the fit pass takes on screen have to be the print ones. */
   #print-report {
     font-family: Arial, Helvetica, sans-serif;
     color: #16202b; font-size: 11.5px; line-height: 1.45;
@@ -263,8 +280,11 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
   }
   #print-report * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-  .pr-page { height: 7.62in; display: flex; flex-direction: column; page-break-after: always; break-after: page; }
+  .pr-page { page-break-after: always; break-after: page; }
   .pr-page:last-child { page-break-after: auto; break-after: auto; }
+  /* One sheet is one physical page. fitPrintPages() overrides the height and
+     adds a zoom when a deal needs more room than a page has. */
+  .pr-fit { height: 7.62in; display: flex; flex-direction: column; }
 
   /* letterhead */
   .pr-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding-bottom: 7px; border-bottom: 2.5px solid var(--pr-navy); }
@@ -311,7 +331,7 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
   .pr-boxbody p { margin: 0 0 6px; }
   .pr-boxbody p:last-child { margin-bottom: 0; }
   .pr-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; margin-top: 10px; align-items: start; }
-  #print-report .pr-page > .pr-box { margin-top: 10px; }
+  #print-report .pr-fit > .pr-box { margin-top: 10px; }
 
   /* timeline */
   .pr-tl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -341,4 +361,3 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
   .pr-asmcol1 { border-right: 1px solid #b8c4d0; }
   .pr-in { color: #0000c0; }
   .pr-asmnote { padding: 5px 10px 6px; font-size: 10px; line-height: 1.45; color: #5a6b7b; border-top: 1px solid #d4dce4; }
-}

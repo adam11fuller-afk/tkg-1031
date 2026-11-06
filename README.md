@@ -26,11 +26,14 @@ sub-label that prints under the column head, a show/hide toggle, and its own cap
 ## Tabs
 - **Assumptions & Inputs** — guided form: property, improvements, depreciation, **client income
   profile**, selling costs, exchange sizing & scenarios, tax rates & thresholds, cost-seg.
-- **Client Summary** — on-screen comparison + an "at a glance" chart. The on-screen look is
-  unchanged; the **Print Report** button produces the Excel-style report below.
-- **Scenario Detail** — per-scenario full tax stack (recapture → LTCG 0/15/20 → NIIT → MA → surtax
-  → §1245) and economics.
-- **Financing Tool** — standalone conventional vs. interest-only debt sizing.
+- **Client Summary** — on-screen comparison + an "at a glance" chart. The **Print Report** button
+  produces the Excel-style report below. The full tax stack now lives on sheet 2 of that report, so
+  the old read-only *Scenario Detail* tab was removed rather than kept as a second copy of it.
+- **Financing Tool** — a standalone scratchpad for sizing a loan side by side, conventional vs.
+  interest-only: LTV, equity required, annual debt service, DSCR, net cash flow, cash-on-cash. It is
+  **not wired to the scenarios or the report** — every exchange column carries its own cap rate,
+  loan rate, term and amortization on the Assumptions tab, including the levered one. Use it to
+  sanity-check a lender quote before typing that rate into a scenario.
 - **Saved Deals** — save/compare deals locally.
 
 ## Run locally
@@ -137,6 +140,21 @@ negatives and an en-dash for zero.
 **It generates from the inputs.** The prose is fixed boilerplate that never changes between deals,
 and every variable sits in its own cell, so no copy is rewritten per deal. Hiding a scenario drops
 its column and the FULL EXCHANGE band collapses on its own.
+
+**Two sheets, always — fit to page.** A long address, a long client name, long scenario labels, an
+extra footnote or the cost-seg row can all push a sheet past one page, and tuned padding only holds
+for the deal it was tuned on. So `fitPrintPages()` measures what each sheet actually needs and sets
+`zoom` to shrink it onto one page, exactly as Excel's *Fit to one page* does (floor 0.78; it runs on
+every render, on the Print Report button, and on the browser's own `beforeprint`, so ⌘P is covered
+too). This is why the report's CSS lives **outside** `@media print` and `#print-report` is parked
+off-screen rather than `display: none` — it needs a real layout box at the true printable width
+(10.2in) for those measurements to be the print measurements. `zoom`, not `transform`: a transform
+only repaints smaller, leaving the original box to break across pages.
+
+`tests/render_check` is not committed, but the harness renders four deals — 1214 Park, 4 Dean, a
+toggled-column case, and a deliberate worst case (long wrapping names, five columns, cost seg on,
+a partial that neither replaces the debt nor covers its own tax) — and asserts 2 PDF pages with no
+overflow in **either** dimension. The worst case fits at 0.954.
 
 **The income assumption is never stated.** Rather than claim to know the client's income, sheet 1
 footnotes a band (`report_income_lo` to `report_income_hi`, shipped at **$100,000 to $600,000**,

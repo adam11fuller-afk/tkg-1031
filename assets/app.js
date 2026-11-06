@@ -497,7 +497,7 @@ function renderSummary(r) {
   const warns = buildWarnings(r);
   document.getElementById('warn-box').innerHTML = warns.map((w) => `<div class="warn">⚠︎ ${w.text}</div>`).join('');
   const pb = document.getElementById('print-btn-sum');
-  if (pb) pb.addEventListener('click', () => window.print());
+  if (pb) pb.addEventListener('click', () => { fitPrintPages(); window.print(); });
 }
 
 function profileLabel() {
@@ -519,115 +519,6 @@ function buildWarnings(r) {
   return warns;
 }
 
-/* ---------- render: Scenario Detail ---------- */
-function taxStack(tb, costSeg, rates) {
-  const r = (label, sub, val) =>
-    `<div class="tx-row"><div class="tx-lbl">${label}${sub ? `<span class="tx-sub">${sub}</span>` : ''}</div><div class="tx-val">${money(val)}</div></div>`;
-  const sub = (v, txt) => (v > 0 ? txt : '');
-  const p = tb.ltcg_parts || [];
-  const p0 = p[0] || { amount: 0, tax: 0 }, p1 = p[1] || { amount: 0, tax: 0 }, p2 = p[2] || { amount: 0, tax: 0 };
-  let rows = r(`§1250 Recapture · ${pct(rates.rate_recapture, 0)}`, sub(tb.gain_recapture_layer, `on ${money(tb.gain_recapture_layer)} layer`), tb.tax_recapture);
-  if (p0.amount > 0) rows += r(`Federal LTCG · ${pct(rates.rate_ltcg_0, 0)}`, `on ${money(p0.amount)} layer`, p0.tax);
-  if (p1.amount > 0) rows += r(`Federal LTCG · ${pct(rates.rate_ltcg_15, 0)}`, `on ${money(p1.amount)} layer`, p1.tax);
-  if (p2.amount > 0 || (p0.amount === 0 && p1.amount === 0)) rows += r(`Federal LTCG · ${pct(rates.rate_ltcg, 0)}`, sub(p2.amount, `on ${money(p2.amount)} layer`), p2.tax);
-  rows +=
-    r(`NIIT · ${pct(rates.rate_niit)}`, sub(tb.tax_niit, `capped at MAGI over ${money(rates.niit_threshold)}`), tb.tax_niit) +
-    r(`MA Income · ${pct(rates.ma_rate, 1)}`, '', tb.tax_ma) +
-    r(`MA ${pct(rates.ma_surtax_rate, 0)} Surtax`, sub(tb.tax_surtax, 'increment over threshold'), tb.tax_surtax);
-  if (costSeg) rows += r('§1245 Recapture · ordinary', 'cost-seg personal property', tb.tax_1245);
-  rows += `<div class="tx-row tx-total"><div class="tx-lbl">Total Tax Due This Year</div><div class="tx-val">${money(tb.total)}</div></div>`;
-  return rows;
-}
-function detailRow(label, val, opts = {}) {
-  const cls = 'd-row' + (opts.hero ? ' hero' : '') + (opts.strong ? ' strong' : '');
-  return `<div class="${cls}"><div class="d-lbl">${label}</div><div class="d-val">${val}</div></div>`;
-}
-function scenarioCard(scn, r) {
-  const tagByKind = {
-    sell: 'Sell now, pay the full tax', full: 'Defer 100%, no cash out',
-    partial: 'Exchange + take some cash', levered: 'Trade up with new debt',
-  };
-  const deferred = scn.recognized_gain <= 0 && scn.kind !== 'sell';
-
-  let position = '';
-  if (scn.kind === 'sell') {
-    position =
-      detailRow('Amount Realized', money(r.amount_realized)) +
-      detailRow('Less: Mortgage Payoff', money(-r.inputs.current_mortgage_payoff)) +
-      detailRow('Less: Total Tax', money(-scn.total_tax)) +
-      detailRow('Net After-Tax Proceeds', money(scn.net_position), { hero: true });
-  } else if (scn.kind === 'partial') {
-    position =
-      detailRow('New Property Value', money(scn.replacement_value), { strong: true }) +
-      detailRow('Equity Reinvested (deferred)', money(scn.equity_contributed)) +
-      detailRow(scn.new_loan > 0 ? 'New Loan (replaces debt)' : 'New Loan (none, mortgage paid off)', money(scn.new_loan)) +
-      detailRow('Cash Taken Out', money(scn.cash_boot)) +
-      detailRow('Less: Tax on Boot', money(-scn.total_tax)) +
-      detailRow(scn.boot_cash_kept < 0 ? 'Cash Shortfall (tax exceeds cash)' : 'Boot Cash Kept', money(scn.boot_cash_kept)) +
-      detailRow('Annual NOI', money(scn.noi)) +
-      detailRow('Annual Debt Service', money(scn.annual_debt_service)) +
-      detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
-      detailRow('Total Position (equity + cash)', money(scn.net_position), { hero: true });
-  } else if (scn.kind === 'levered') {
-    position =
-      detailRow('New Property Value', money(scn.replacement_value), { strong: true }) +
-      detailRow('Equity Invested', money(scn.equity_contributed)) +
-      detailRow('New Loan (buy-up gap)', money(scn.new_loan)) +
-      detailRow('Annual NOI', money(scn.noi)) +
-      detailRow('Annual Debt Service', money(scn.annual_debt_service)) +
-      detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
-      `<div class="d-sub">DEPRECIATION SHIELD (§1031(d) carryover basis)</div>` +
-      detailRow('Annual Depreciation', money(scn.annual_depreciation)) +
-      detailRow('Annual Tax Shield', money(scn.annual_tax_shield)) +
-      detailRow('Total Annual Benefit', money(scn.total_annual_benefit)) +
-      detailRow('Return on Equity', pct(scn.total_return_equity)) +
-      detailRow('Equity Position', money(scn.net_position), { hero: true });
-  } else { // full (B, B2)
-    position =
-      detailRow('New Property Value', money(scn.replacement_value), { strong: true }) +
-      detailRow('Equity Invested', money(scn.equity_contributed)) +
-      detailRow('New Loan (replaces debt)', money(scn.new_loan)) +
-      detailRow('Cap Rate', pct(scn.yield)) +
-      detailRow('Annual NOI', money(scn.noi)) +
-      detailRow('Annual Debt Service', money(scn.annual_debt_service)) +
-      detailRow('Net Cash Flow After Debt', money(scn.net_cash_flow)) +
-      detailRow('Equity Position', money(scn.net_position), { hero: true });
-  }
-
-  const deferBanner = deferred
-    ? `<div class="defer-banner">All gain deferred. $0 recognized this year (${money(scn.tax_deferred)} tax deferred vs. selling)</div>`
-    : '';
-
-  return `<div class="scn-card">
-    <div class="scn-head">
-      <div><span class="scn-key">${scn.key}</span><span class="scn-name">${escHtml(scn.label)}</span></div>
-      <span class="scn-tag">${tagByKind[scn.kind]}</span>
-    </div>
-    <div class="scn-body">
-      <div class="scn-grp">THE GAIN</div>
-      ${detailRow('Realized Gain', money(r.realized_gain))}
-      ${scn.kind === 'partial' && scn.mortgage_boot > 0 ? detailRow('· Cash boot (cash taken)', money(scn.cash_boot)) + detailRow('· Mortgage boot (debt not replaced)', money(scn.mortgage_boot)) : ''}
-      ${detailRow('Gain Recognized (taxed now)', money(scn.recognized_gain), { strong: true })}
-      <div class="scn-grp">THE TAX STACK</div>
-      ${deferBanner}
-      ${taxStack(scn.tax_breakdown, r.inputs.cost_seg_flag === 1, r.inputs)}
-      <div class="scn-grp">${scn.kind === 'sell' ? 'WHAT YOU WALK AWAY WITH' : 'WHAT YOU REINVEST / WALK AWAY WITH'}</div>
-      ${position}
-    </div>
-  </div>`;
-}
-function renderScenarios(r) {
-  const root = document.getElementById('view-scenarios');
-  root.innerHTML = `
-    <div class="sum-head">
-      <h2 class="sum-title">Scenario Detail</h2>
-      <p class="sum-sub">The full tax stack and economics behind each option</p>
-      <p class="sum-note">Read-only. Every figure derives from the Assumptions tab. Recapture is taxed first, then long-term capital gains across the brackets.</p>
-    </div>
-    <div class="scn-grid">
-      ${r.visible.map((s) => scenarioCard(s, r)).join('')}
-    </div>`;
-}
 
 /* ---------- PRINT REPORT (two Excel-style sheets, @media print) ----------
    The prose below is fixed boilerplate that never changes between deals, and
@@ -752,7 +643,7 @@ function renderPrintReport(r) {
     notes.push(w.text);
   });
 
-  const sheet1 = `<section class="pr-page">
+  const sheet1 = `<section class="pr-page"><div class="pr-fit">
       ${prLetterhead('1031 Exchange &amp; Financing Analysis')}
       <table class="pr-id"><tbody><tr>
         <th scope="row">Property</th><td>${escHtml(I.property_address || DASH)}</td>
@@ -762,7 +653,7 @@ function renderPrintReport(r) {
       ${grid}
       <ol class="pr-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ol>
       ${prFooter(1, 2)}
-    </section>`;
+    </div></section>`;
 
   /* ---- sheet 2: how it works ---- */
   const taxed = ord.filter((s) => s.recognized_gain > 0);
@@ -825,7 +716,7 @@ function renderPrintReport(r) {
    ])
    .filter(Boolean).join('');
 
-  const sheet2 = `<section class="pr-page">
+  const sheet2 = `<section class="pr-page"><div class="pr-fit">
       ${prLetterhead('How the exchange works')}
       <div class="pr-box">
         <div class="pr-boxhead">THE EXCHANGE TIMELINE</div>
@@ -853,9 +744,35 @@ function renderPrintReport(r) {
         </section>
       </div>
       ${prFooter(2, 2)}
-    </section>`;
+    </div></section>`;
 
   root.innerHTML = sheet1 + sheet2;
+  fitPrintPages();
+}
+
+/* Fit-to-page, the way Excel does it. Each sheet is one physical page, so no
+   sheet may ever spill. Footnote count, a long address, an extra scenario —
+   anything can push a sheet over, and a tuned padding only holds for the deal
+   it was tuned on. So measure what the sheet actually needs and scale it down
+   to fit. The report is laid out off-screen at the true print width (10.2in at
+   0.4in margins), so these screen measurements are the print measurements. */
+const PR_PAGE_PX = 7.62 * 96;   // printable height, px at 96dpi
+const PR_MIN_FIT = 0.78;        // below this, shrinking it further is worse than telling us
+function fitPrintPages() {
+  document.querySelectorAll('#print-report .pr-fit').forEach((el) => {
+    el.style.zoom = '';
+    el.style.height = 'auto';
+    const need = el.scrollHeight;
+    const k = Math.max(PR_MIN_FIT, Math.min(1, PR_PAGE_PX / need));
+    // zoom, not transform: zoom shrinks the layout box too, so the sheet really
+    // occupies one page. A transform only repaints it smaller and the page still
+    // breaks on the original height. Lengths inside a zoomed box are in zoomed
+    // units, so the height is divided by k while width:100% needs no correction.
+    el.style.height = (PR_PAGE_PX / k) + 'px';
+    if (k < 1) el.style.zoom = k;
+    el.dataset.fit = k.toFixed(3);
+    el.dataset.need = need;
+  });
 }
 
 /* ---------- Financing Tool ---------- */
@@ -1004,7 +921,6 @@ function recompute() {
     }
   });
   renderSummary(r);
-  renderScenarios(r);
   renderPrintReport(r);
   saveState();
 }
@@ -1032,4 +948,9 @@ renderAssumptions();
 renderFinancing();
 renderSavedDeals();
 recompute();
+
+// Cmd+P skips the Print Report button, so fit on the browser's own print event
+// too. Re-fit once the webfonts land, since they change the measured height.
+window.addEventListener('beforeprint', fitPrintPages);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitPrintPages);
 })();
