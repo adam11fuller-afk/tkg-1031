@@ -295,9 +295,18 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
   .pr-doctype { font-size: 13px; font-weight: 700; letter-spacing: .06em; color: #5a6b7b; text-transform: uppercase; }
 
   /* deal identification strip */
-  table.pr-id { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 10px; }
-  .pr-id th { text-align: left; padding: 4px 8px; border: 1px solid #b8c4d0; background: #eef2f6; font-weight: 700; color: #5a6b7b; width: 12%; }
-  .pr-id td { padding: 4px 8px; border: 1px solid #b8c4d0; font-weight: 700; }
+  /* The strip shares the comparison grid's column rhythm: its divisions land on
+     the grid's lines at 40/55/70/85/100%, so the two tables read as one sheet.
+     Fixed layout matters as much as the widths — with auto layout the cells
+     sized to their contents, so a longer client name moved every division and
+     the strip was ragged in a different place on every deal. */
+  table.pr-id { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 10px; table-layout: fixed; }
+  .pr-id th { text-align: left; padding: 4px 8px; border: 1px solid #b8c4d0; background: #eef2f6; font-weight: 700; color: #5a6b7b; width: 15%; }
+  .pr-id th:first-child { width: 25%; }   /* sits over the grid's row-label column */
+  /* No truncation here: a long address wraps and the strip gets taller, which
+     fitPrintPages() absorbs. Silently clipping a client's address would not. */
+  .pr-id td { padding: 4px 8px; border: 1px solid #b8c4d0; font-weight: 700; width: 15%; }
+  .pr-id td.pr-id-addr { width: 15%; }
 
   /* the comparison grid */
   table.pr-grid { width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; margin-top: 11px; table-layout: fixed; }
@@ -364,6 +373,7 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
   .pr-asm th[scope="row"] { text-align: left; font-weight: 400; padding: 3.5px 9px; border-bottom: 1px solid #d4dce4; color: #5a6b7b; }
   .pr-asm td { text-align: right; padding: 3.5px 9px; border-bottom: 1px solid #d4dce4; font-weight: 700; }
   .pr-asm tr:last-child th, .pr-asm tr:last-child td { border-bottom: none; }
+  .pr-asm tr.pr-asmgrp th { font-weight: 700; color: var(--pr-navy); padding-top: 5px; }
   .pr-asmcol1 { border-right: 1px solid #b8c4d0; }
   .pr-in { color: #0000c0; }
   .pr-asmnote { padding: 5px 10px 6px; font-size: 10px; line-height: 1.45; color: #5a6b7b; border-top: 1px solid #d4dce4; }

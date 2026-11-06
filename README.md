@@ -219,6 +219,19 @@ The lesson for the harness: it asserts page geometry, and page geometry was *fin
 this — a value wrapping mid-range changes nothing about the height. Check the rendered text, not
 just the box.
 
+**The identification strip shares the grid's columns.** It used to be auto-layout with 12% labels,
+so its cell widths came from their contents: its divisions fell at 12/28/40/62/74% while the grid's
+columns are at 25/40/55/70/85%, and almost nothing lined up. Worse, a longer client name moved every
+division, so the strip was ragged in a different place on each deal. It is now `table-layout: fixed`
+at 25/15/15/15/15/15, which puts all six divisions exactly on the grid's lines and holds them there
+whatever the content. The cost is that the address column is one grid column wide: a very long
+address wraps to three lines and pushes sheet 1 to a 0.914 fit. Real addresses are short, and
+wrapping beats silently truncating an address with an ellipsis.
+
+For the same reason the sheet-2 cap-rate rows lost their `Cap rate, ` prefix and sit under a group
+heading instead. `Cap rate, 1031 into Absolute NNN` could not fit that column and wrapped every one
+of those rows to two lines, along with `varies by scenario` next to it.
+
 **The income assumption is never stated.** Rather than claim to know the client's income, sheet 1
 footnotes a band (`report_income_lo` to `report_income_hi`, shipped at **$100,000 to $600,000**,
 where most owners fall) and the tax range across it, noting there is some variation. Sheet 2 carries

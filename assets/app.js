@@ -666,7 +666,7 @@ function renderPrintReport(r) {
   const sheet1 = `<section class="pr-page"><div class="pr-fit">
       ${prLetterhead('1031 Exchange &amp; Financing Analysis')}
       <table class="pr-id"><tbody><tr>
-        <th scope="row">Property</th><td>${escHtml(I.property_address || DASH)}</td>
+        <th scope="row">Property</th><td class="pr-id-addr">${escHtml(I.property_address || DASH)}</td>
         <th scope="row">Prepared for</th><td>${escHtml(I.prepared_for || DASH)}</td>
         <th scope="row">Date</th><td>${dateStr}</td>
       </tr></tbody></table>
@@ -706,6 +706,10 @@ function renderPrintReport(r) {
 
   // Assumptions: blue marks a true input, black a computed figure.
   const aRow = (label, val, isIn) => `<tr><th scope="row">${label}</th><td${isIn ? ' class="pr-in"' : ''}>${val}</td></tr>`;
+  // A group heading, so each cap-rate row carries only the scenario name.
+  // "Cap rate, 1031 into Absolute NNN" is far too long for this column and wrapped
+  // every row to two lines; the name alone fits.
+  const aGroup = (label) => `<tr class="pr-asmgrp"><th scope="row" colspan="2">${label}</th></tr>`;
   const exch = ord.filter((s) => s.kind !== 'sell');
   const uniqRate = exch.filter((s, i, a) => a.findIndex((x) => x.rate === s.rate) === i);
   const uniqAmort = exch.filter((s, i, a) => a.findIndex((x) => x.amort === s.amort) === i);
@@ -729,7 +733,8 @@ function renderPrintReport(r) {
   const asmB = [
     ord.some((s) => s.kind === 'partial') ? aRow('Partial: share reinvested', pct(I.partial_pct, 0), 1) : '',
     ord.some((s) => s.kind === 'levered') ? aRow('Levered: buy-up multiple', I.levered_pct.toFixed(2) + '×', 1) : '',
-  ].concat(exch.map((s) => aRow('Cap rate, ' + escHtml(s.label), pct(s.yield, 2), 1)))
+  ].concat(exch.length ? [aGroup('Cap rate on the replacement')] : [])
+   .concat(exch.map((s) => aRow(escHtml(s.label), pct(s.yield, 2), 1)))
    .concat([aRow('Loan rate', loanRate, 1)])
    .filter(Boolean).join('');
 
