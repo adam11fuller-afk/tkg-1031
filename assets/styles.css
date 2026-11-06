@@ -354,7 +354,11 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
 
   /* assumptions */
   .pr-asmwrap { display: grid; grid-template-columns: 0.86fr 1.14fr; font-size: 11px; }
-  table.pr-asm { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  /* Fixed layout on purpose: with auto layout one long value ("Married filing
+     separately") widens the value column, squeezes the labels and wraps half
+     the rows. Pinning the split confines a long value to its own row. */
+  table.pr-asm { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; table-layout: fixed; }
+  .pr-asm th[scope="row"] { width: 56%; }
   .pr-asm th[scope="row"] { text-align: left; font-weight: 400; padding: 3.5px 9px; border-bottom: 1px solid #d4dce4; color: #5a6b7b; }
   .pr-asm td { text-align: right; padding: 3.5px 9px; border-bottom: 1px solid #d4dce4; font-weight: 700; }
   .pr-asm tr:last-child th, .pr-asm tr:last-child td { border-bottom: none; }

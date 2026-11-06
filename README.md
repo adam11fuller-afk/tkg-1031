@@ -44,11 +44,13 @@ Double-click `index.html`, or serve the folder (`python3 -m http.server 4031`). 
 ```bash
 node tests/engine.test.js
 ```
-Verifies the tax engine against two hand-checked deals and reproduces the historical README figures.
+Verifies the tax engine against two hand-checked deals, reproduces the historical README figures,
+and checks that the filing-status switch moves all three thresholds into the engine (not just the
+labels) and that the resulting tax ranks joint ≤ head of household ≤ single ≤ married-filing-separately.
 
 ---
 
-## The tax engine (`assets/calc.js`, 2026, MFJ defaults)
+## The tax engine (`assets/calc.js`, 2026, joint-return defaults)
 
 Everything is a pure function; every rate and threshold is an editable input.
 
@@ -75,8 +77,9 @@ never treated as capital improvements.
 **`tax(recognized_gain)` — the stack**
 1. **§1250 recapture** — `min(gain, unrecap_1250) × 25%`.
 2. **Federal LTCG** — the remaining layer runs through the **0% / 15% / 20%** brackets, stacked on
-   top of `other_income + the §1250 layer`. 2026 MFJ breakpoints **$98,900** and **$613,700**.
-3. **NIIT** — `3.8% × min(recognized_gain, max(0, other_income + gain − $250,000))` (the MAGI cap).
+   top of `other_income + the §1250 layer`. Breakpoints come from the filing status (below).
+3. **NIIT** — `3.8% × min(recognized_gain, max(0, other_income + gain − niit_threshold))` (the MAGI
+   cap). The threshold comes from the filing status.
 4. **MA income** — `5% × recognized_gain`.
 5. **MA 4% surtax** — on the **gain increment above the threshold only**:
    `[max(0, other + gain − $1,107,750) − max(0, other − $1,107,750)] × 4%`.
@@ -88,6 +91,45 @@ Deferred exchanges recognize `$0`, so their whole stack is `$0`.
 **Client income profile** — instead of asking the client's income, pick **Moderate $100K /
 Typical $250K (default) / High $600K**, or type a custom override. This sets the `other_income`
 that stacks beneath the gain and drives the brackets, NIIT cap, and surtax base.
+
+### Filing status
+
+The switch in section 4 is **not a label** — it rewrites three real thresholds in section 7 and
+changes the tax. `FILING_STATUS` in `calc.js` is the single source of truth; `DEFAULTS` reads its
+joint-return row, the dropdown is generated from its keys, and `applyFilingStatus(inputs, status)`
+writes the figures in.
+
+| | LTCG 0%→15% | LTCG 15%→20% | NIIT MAGI |
+|---|--:|--:|--:|
+| Married filing jointly | $98,900 | $613,700 | $250,000 |
+| Qualifying surviving spouse | $98,900 | $613,700 | $250,000 |
+| Single | $49,450 | $545,500 | $200,000 |
+| Head of household | $66,200 | $579,600 | $200,000 |
+| Married filing separately | $49,450 | $306,850 | $125,000 |
+
+LTCG breakpoints are **Rev. Proc. 2025-32 §4.03** as published in **IRB 2025-45**. Two quirks of
+that table: it has no *single* row (single filers are "All Other Individuals") and no separate
+*qualifying surviving spouse* row (QSS rides "Married Individuals Filing Joint Returns and
+Surviving Spouses"), which is why QSS carries the joint figures. NIIT thresholds are statutory —
+**IRC §1411(b)** — and have never been indexed, so a 2025-dated source is not stale for them;
+OBBBA did not amend §1411.
+
+**The MA surtax threshold deliberately does NOT move with filing status.** It is one per-return
+figure ($1,107,750 for 2026) and is **not doubled** on a joint return. Since TY2024 a couple filing
+a joint federal return must also file jointly in Massachusetts (M.G.L. c.62C §6(a)(2), added by
+St. 2023 c.50 §46), so they cannot file separately in MA to claim two thresholds. That is why it
+sits outside `FILING_STATUS`.
+
+`reconcileFilingStatus()` runs on every load of saved inputs and of a saved deal, because the
+dropdown used to be an inert label: a deal saved then can hold `filing_status: 'single'` over the
+joint-return figures and would otherwise compute joint tax under a "Single" label. The rule is
+narrow — if the stored thresholds are exactly some *other* status's standard set they are stale and
+get re-applied; if they match no status at all someone typed them, and the override is kept.
+
+Changing the switch overwrites any manual override of those three figures, so set the status first
+and let a CPA tune afterwards. Sell & Pay tax on 4 Dean at $250K other income, by status:
+**$376,005** joint and QSS, **$377,710** head of household, **$379,415** single, **$391,348**
+married filing separately.
 
 **Exchange sizing** — full deferral replaces value, equity **and** debt. Recognized boot =
 `cash not reinvested + old debt not replaced by new debt`.
@@ -116,7 +158,9 @@ Past the recovery life the carryover tier is **0** — it never divides by a flo
    carryover deduction (the old `÷ max(1, life − held)` floored to 1).
 5. **Improvements on their own clock** — lump sum + year-in-service, depreciated from that year.
 6. **Assessor land split** — optional land/building inputs drive a precise, labeled land %.
-7. **Income profile** — Moderate/Typical/High + override, never framed as asking the client.
+7. **Income profile** — Moderate/Typical/High + override, never framed as asking the client. A
+   working **filing-status switch** (joint / QSS / single / HOH / MFS) drives both LTCG breakpoints
+   and the NIIT threshold; it used to be an inert label over hard-coded joint-return figures.
 8. **Second full exchange (B2)** + editable labels and show/hide on every scenario (DST vs. NNN).
 9. **Prepared-for / property-address** inputs that print on the report.
 10. **New client report** — a branded, two-sheet, US-Letter-landscape report (`@media print`),
@@ -158,12 +202,21 @@ asserts 2 PDF pages with no overflow in **either** dimension. Checking height al
 a width bug once clipped the last column out of the PDF while every height check read clean. The
 worst case fits at 0.954.
 
+The assumptions tables use `table-layout: fixed` for the same reason. Under auto layout a single
+long value — "Married filing separately" — widened the value column, squeezed the labels, and
+wrapped five unrelated rows, costing 56px. Pinning the split confines a long value to its own row,
+and sheet 2 now measures a flat 724px for every filing status.
+
 **The income assumption is never stated.** Rather than claim to know the client's income, sheet 1
 footnotes a band (`report_income_lo` to `report_income_hi`, shipped at **$100,000 to $600,000**,
 where most owners fall) and the tax range across it, noting there is some variation. Sheet 2 carries
 the band as an input cell and repeats the range under the tax total. At the 1214 Park defaults that
-range is **$528,957 to $575,213**. Both ends are editable inputs. Filing status does not appear on
-the report; note that the bracket thresholds shipped are the joint-return figures.
+range is **$528,957 to $575,213**. Both ends are editable inputs.
+
+Filing status never appears on sheet 1. It is listed once on sheet 2, in the ASSUMPTIONS AND INPUTS
+block, as an input the client can correct — the same block that already carries the income band and
+says "tell us if any are wrong." The tax range in the footnote follows the selected status too, so a
+single-filer deal no longer prints joint-return numbers with nothing to say so.
 
 ### Verified figures
 

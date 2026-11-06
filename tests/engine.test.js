@@ -13,6 +13,10 @@ function approx(name, got, want, tol) {
   if (!ok) failures++;
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}: got ${fmt(got)}  want ${fmt(want)} (±${tol})`);
 }
+function assertTrue(name, ok, detail) {
+  if (!ok) failures++;
+  console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  (' + detail + ')' : ''}`);
+}
 function fmt(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
   const r = Math.round(n);
@@ -151,6 +155,70 @@ console.log('\n=== TEST (d): NIIT cap & surtax increment ===');
   // surtax increment at $0 other income = (gain - 1,107,750)*4%
   approx('MA surtax increment at $0 other income',
     tb.tax_surtax, Math.max(0, r0.realized_gain - DEFAULTS.ma_surtax_threshold) * 0.04, 1);
+}
+
+/* ===========================================================
+   TEST (e) — the filing-status switch
+   It must actually move the three status-driven thresholds into the
+   engine, not just relabel the UI, and the resulting tax must move the
+   way the brackets say it should.
+   =========================================================== */
+console.log('\n=== TEST (e): filing status drives the thresholds ===');
+{
+  const { FILING_STATUS, applyFilingStatus } = Calc;
+  const base = { ...dean, other_taxable_income: 250000 };
+  const tax = {};
+  for (const [k, f] of Object.entries(FILING_STATUS)) {
+    const r = compute(applyFilingStatus(base, k));
+    tax[k] = r.A.total_tax;
+    const used = r.inputs;
+    approx(`${k}: ltcg_bkt_0 reached the engine`, used.ltcg_bkt_0, f.ltcg_bkt_0, 0);
+    approx(`${k}: ltcg_bkt_1 reached the engine`, used.ltcg_bkt_1, f.ltcg_bkt_1, 0);
+    approx(`${k}: niit_threshold reached the engine`, used.niit_threshold, f.niit_threshold, 0);
+  }
+  console.log('\n  Sell & Pay tax on 4 Dean at $250k other income, by filing status:');
+  for (const [k, t] of Object.entries(tax)) {
+    console.log(`    ${FILING_STATUS[k].label.padEnd(28)} ${fmt(t)}`);
+  }
+  // Lower breakpoints push more of the gain into 20%, and NIIT starts earlier,
+  // so a single filer cannot pay less than a joint filer on an identical deal.
+  assertTrue('single pays more than married-filing-jointly on the same deal',
+    tax.single > tax.mfj, `${fmt(tax.single)} vs ${fmt(tax.mfj)}`);
+  assertTrue('head of household sits between joint and single',
+    tax.hoh > tax.mfj && tax.hoh <= tax.single, fmt(tax.hoh));
+  assertTrue('married-filing-separately is the least favourable',
+    tax.mfs >= tax.single, `${fmt(tax.mfs)} vs ${fmt(tax.single)}`);
+  // A qualifying surviving spouse gets the joint brackets, so the tax is identical.
+  approx('qualifying surviving spouse matches married-filing-jointly', tax.qss, tax.mfj, 0.01);
+  // A deal saved while the switch was still an inert label: status says single,
+  // thresholds are the joint set. That must be reconciled, not computed as-is.
+  const { reconcileFilingStatus } = Calc;
+  const stale = { ...base, filing_status: 'single',
+    ltcg_bkt_0: 98900, ltcg_bkt_1: 613700, niit_threshold: 250000 };
+  const fixed = reconcileFilingStatus(stale);
+  approx('stale saved deal: ltcg_bkt_0 reconciled to single', fixed.ltcg_bkt_0, 49450, 0);
+  approx('stale saved deal: ltcg_bkt_1 reconciled to single', fixed.ltcg_bkt_1, 545500, 0);
+  approx('stale saved deal: niit_threshold reconciled to single', fixed.niit_threshold, 200000, 0);
+  approx('stale saved deal now taxes as a single filer',
+    compute(fixed).A.total_tax, tax.single, 0.01);
+  // A deliberate CPA override is NOT a stale status table, so it survives.
+  const override = { ...base, filing_status: 'single',
+    ltcg_bkt_0: 49450, ltcg_bkt_1: 600000, niit_threshold: 200000 };
+  approx('hand-typed threshold survives reconciliation',
+    reconcileFilingStatus(override).ltcg_bkt_1, 600000, 0);
+  // An already-consistent deal is returned untouched.
+  const good = applyFilingStatus(base, 'hoh');
+  assertTrue('consistent inputs pass through reconciliation unchanged',
+    reconcileFilingStatus(good) === good);
+  // A corrupt status falls back to joint without inventing thresholds.
+  assertTrue('unknown filing status falls back to joint',
+    reconcileFilingStatus({ ...applyFilingStatus(base, 'mfj'), filing_status: 'bogus' })
+      .filing_status === 'mfj');
+
+  // The switch must be the ONLY thing that changed: same gain either way.
+  const gMfj = compute(applyFilingStatus(base, 'mfj')).realized_gain;
+  const gSingle = compute(applyFilingStatus(base, 'single')).realized_gain;
+  approx('filing status does not touch the realized gain', gSingle, gMfj, 0.01);
 }
 
 console.log('\n============================================');

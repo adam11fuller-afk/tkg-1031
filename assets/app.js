@@ -5,7 +5,8 @@
    collides ("already declared") and silently kills app.js on real page load.
    ============================================================ */
 (function () {
-const { DEFAULTS, compute, financing, FINANCING_DEFAULTS, taxAtIncome, INCOME_PROFILES } = window.Calc;
+const { DEFAULTS, compute, financing, FINANCING_DEFAULTS, taxAtIncome, INCOME_PROFILES,
+        FILING_STATUS, applyFilingStatus, reconcileFilingStatus } = window.Calc;
 const CURRENT_YEAR = new Date().getFullYear();
 
 /* ---------- state ---------- */
@@ -17,7 +18,13 @@ let finState = loadState(FIN_KEY, FINANCING_DEFAULTS);
 function loadState(key, fallback) {
   try {
     const saved = JSON.parse(localStorage.getItem(key));
-    if (saved && typeof saved === 'object') return { ...fallback, ...saved };
+    // Inputs saved before the filing-status switch worked can hold a status
+    // whose thresholds were never applied; reconcile rather than compute a
+    // joint-return tax under a "Single" label.
+    if (saved && typeof saved === 'object') {
+      const merged = { ...fallback, ...saved };
+      return key === STORAGE_KEY ? reconcileFilingStatus(merged) : merged;
+    }
   } catch (e) {}
   return { ...fallback };
 }
@@ -125,8 +132,9 @@ const SECTIONS = [
     desc: 'Set a reasonable income assumption without asking the client. The profile sets the “other taxable income” that stacks beneath the gain; the override lets a CPA dial it in.',
     incomeProfile: true,
     fields: [
-      ['filing_status', 'Filing Status', 'select', 'Thresholds below are the married-filing-jointly figures.',
-        [['mfj', 'Married filing jointly'], ['single', 'Single']]],
+      ['filing_status', 'Filing Status', 'select',
+        'Drives the federal capital-gains breakpoints and the NIIT threshold in section 7. Changing it rewrites those three figures, so set it before any manual override.',
+        Object.entries(FILING_STATUS).map(([k, v]) => [k, v.label])],
       ['other_taxable_income', 'Other Taxable Income (override)', 'money', 'The client’s other taxable income. Pick a profile above, or type a figure.'],
       ['report_income_lo', 'Printed income band, low', 'money', 'The report never states an income. It quotes this band and the tax range across it.'],
       ['report_income_hi', 'Printed income band, high', 'money', 'Most owners fall between these two figures.'],
@@ -154,21 +162,21 @@ const SECTIONS = [
     matrix: true,
   },
   {
-    num: '7', title: 'TAX RATES & THRESHOLDS (2026 MFJ)',
-    desc: 'Tax-law constants. Pre-filled and verified for 2026. A CPA can override every rate and bracket; a normal user never touches these.',
+    num: '7', title: 'TAX RATES & THRESHOLDS (2026)',
+    desc: 'Tax-law constants. Pre-filled and verified for 2026. The three figures that move with filing status — both capital-gains breakpoints and the NIIT threshold — are rewritten whenever you change the switch in section 4. A CPA can override every rate and bracket; a normal user never touches these.',
     collapsible: true, collapsed: true,
     fields: [
       ['rate_recapture', 'Depreciation Recapture rate (§1250)', 'pct', 'Unrecaptured §1250 gain, up to 25%.'],
       ['rate_ltcg_0', 'Federal LTCG — 0% bracket rate', 'pct', 'IRC §1(h).'],
       ['rate_ltcg_15', 'Federal LTCG — 15% bracket rate', 'pct', 'IRC §1(h).'],
       ['rate_ltcg', 'Federal LTCG — 20% bracket rate', 'pct', 'IRC §1(h), top bracket.'],
-      ['ltcg_bkt_0', 'LTCG 0%→15% breakpoint', 'money', '2026 MFJ taxable-income breakpoint.'],
-      ['ltcg_bkt_1', 'LTCG 15%→20% breakpoint', 'money', '2026 MFJ taxable-income breakpoint.'],
+      ['ltcg_bkt_0', 'LTCG 0%→15% breakpoint', 'money', () => `2026 taxable-income breakpoint, ${filingLabel()}.`],
+      ['ltcg_bkt_1', 'LTCG 15%→20% breakpoint', 'money', () => `2026 taxable-income breakpoint, ${filingLabel()}.`],
       ['rate_niit', 'NIIT rate', 'pct', 'Net Investment Income Tax, IRC §1411.'],
-      ['niit_threshold', 'NIIT MAGI threshold', 'money', '$250k MFJ. NIIT applies to the lesser of gain or MAGI over this.'],
+      ['niit_threshold', 'NIIT MAGI threshold', 'money', () => `Statutory, never indexed: ${money(FILING_STATUS[state.filing_status].niit_threshold)} for ${filingLabel()}. NIIT applies to the lesser of gain or MAGI over this.`],
       ['ma_rate', 'MA Income rate', 'pct', 'MA flat 5.0%.'],
       ['ma_surtax_rate', 'MA 4% Surtax rate', 'pct', 'M.G.L. c.62 §4(d).'],
-      ['ma_surtax_threshold', 'MA Surtax Threshold', 'money', '2026 indexed, per return.'],
+      ['ma_surtax_threshold', 'MA Surtax Threshold', 'money', '2026 indexed, per return. The one threshold that does NOT move with filing status: it is not doubled on a joint return, and since 2024 a couple filing jointly federally must file jointly in MA, so they cannot split to claim two.'],
       ['ordinary_rate', 'Ordinary Income rate', 'pct', 'Top bracket; §1245 recapture.'],
     ],
   },
@@ -265,7 +273,9 @@ function renderAssumptions() {
         <p class="sec-desc">${sec.desc}</p>`;
     if (sec.incomeProfile) html += incomeChips();
     for (const f of sec.fields) {
-      const [key, label, type, help, opts] = f;
+      const [key, label, type, help0, opts] = f;
+      // help can be a function when it has to track another input (filing status)
+      const help = typeof help0 === 'function' ? help0() : help0;
       if (type === 'check') {
         html += `<div class="field"><div class="lbl">${label}<span class="help">${help}</span></div>
           <label class="switch"><input type="checkbox" aria-label="${label}" data-key="${key}" data-type="check" ${state[key] ? 'checked' : ''}/> <span>${state[key] ? 'On' : 'Off'}</span></label></div>`;
@@ -331,6 +341,13 @@ function wireInputs(root, attr, onChange) {
         stateObj[key] = el.value;
       } else if (type === 'select') {
         stateObj[key] = el.value;
+        // Filing status is not a label: it moves both LTCG breakpoints and the
+        // NIIT threshold. Rewrite them and re-render so section 7 shows the
+        // figures actually in use rather than the ones we started from.
+        if (key === 'filing_status' && stateObj === state) {
+          Object.assign(state, applyFilingStatus(state, el.value));
+          renderAssumptions();
+        }
       } else {
         if (/^-?\.?$/.test(el.value)) return;
         setFromInput(stateObj, key, type, el.value);
@@ -504,7 +521,10 @@ function profileLabel() {
   const p = state.income_profile;
   return p === 'moderate' ? 'Moderate' : p === 'high' ? 'High' : p === 'custom' ? 'Custom' : 'Typical';
 }
-function filingLabel() { return state.filing_status === 'single' ? 'single filer' : 'married filing jointly'; }
+function filingLabel() {
+  const f = FILING_STATUS[state.filing_status];
+  return f ? f.label.toLowerCase() : FILING_STATUS.mfj.label.toLowerCase();
+}
 
 function buildWarnings(r) {
   const warns = [];
@@ -712,7 +732,10 @@ function renderPrintReport(r) {
   ].concat(exch.map((s) => aRow('Cap rate, ' + escHtml(s.label), pct(s.yield, 2), 1)))
    .concat([
      aRow('Loan rate', loanRate, 1),
-     aRow('Income band assumed', acct(incLo) + ' to ' + acct(incHi), 1),
+     aRow('Income band', acct(incLo) + ' to ' + acct(incHi), 1),
+     // Not a statement about the client, an input they can correct — which is
+     // exactly what this block is for. It never appears on sheet 1.
+     aRow('Filing status', (FILING_STATUS[I.filing_status] || FILING_STATUS.mfj).label, 1),
    ])
    .filter(Boolean).join('');
 
@@ -839,7 +862,7 @@ function saveDeal(name) {
 function loadDealById(id) {
   const d = deals.find((x) => x.id === id);
   if (!d) return;
-  state = { ...DEFAULTS, ...d.inputs };
+  state = reconcileFilingStatus({ ...DEFAULTS, ...d.inputs });
   renderAssumptions();
   recompute();
   document.querySelector('#tabs button[data-tab="summary"]').click();

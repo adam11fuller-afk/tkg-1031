@@ -4,13 +4,71 @@
    Wrapped in an IIFE so nothing leaks to global scope; exposed as
    window.Calc (browser) and module.exports (node, for the tests).
 
-   2026 tax engine (MFJ): other income stacks first, then unrecaptured
+   2026 tax engine: other income stacks first, then unrecaptured
    §1250 gain at 25%, then the LTCG layer across the 0/15/20 brackets.
    NIIT is capped by the MAGI-over-threshold rule; the MA 4% surtax is
    charged on the gain INCREMENT above the threshold only. Every rate
    and threshold is an editable input (section "Tax Rates & Thresholds").
    ============================================================ */
 (function () {
+
+/* ---- Filing status: the three thresholds that genuinely move with it ----
+   2026 federal LTCG breakpoints are Rev. Proc. 2025-32 §4.03 as published in
+   Internal Revenue Bulletin 2025-45. Two quirks of that table worth knowing:
+   it has no "single" row (single filers are "All Other Individuals") and no
+   separate qualifying-surviving-spouse row (QSS rides "Married Individuals
+   Filing Joint Returns and Surviving Spouses"), which is why QSS carries the
+   joint figures here.
+   NIIT thresholds are statutory — IRC §1411(b) — and have never been indexed,
+   so a 2025-dated source is not stale for them. OBBBA did not touch §1411.
+   The MA 4% surtax threshold is deliberately NOT in this table: it is a single
+   per-return figure ($1,107,750 for 2026) with no filing-status variation and
+   is NOT doubled on a joint return. Since TY2024 a couple filing a joint
+   federal return must also file jointly in Massachusetts (M.G.L. c.62C
+   §6(a)(2), added by St. 2023 c.50 §46), so they cannot file separately in MA
+   to claim two thresholds. */
+const FILING_STATUS = {
+  mfj:    { label: 'Married filing jointly',      ltcg_bkt_0: 98900, ltcg_bkt_1: 613700, niit_threshold: 250000 },
+  qss:    { label: 'Qualifying surviving spouse', ltcg_bkt_0: 98900, ltcg_bkt_1: 613700, niit_threshold: 250000 },
+  single: { label: 'Single',                      ltcg_bkt_0: 49450, ltcg_bkt_1: 545500, niit_threshold: 200000 },
+  hoh:    { label: 'Head of household',           ltcg_bkt_0: 66200, ltcg_bkt_1: 579600, niit_threshold: 200000 },
+  mfs:    { label: 'Married filing separately',   ltcg_bkt_0: 49450, ltcg_bkt_1: 306850, niit_threshold: 125000 },
+};
+
+/* Returns a copy of `inputs` with that status's thresholds written in. The
+   switch is not a label: these three figures change the tax. An unknown status
+   falls back to joint rather than silently leaving a mismatched set in place. */
+function applyFilingStatus(inputs, status) {
+  const key = FILING_STATUS[status] ? status : 'mfj';
+  const f = FILING_STATUS[key];
+  return {
+    ...inputs,
+    filing_status: key,
+    ltcg_bkt_0: f.ltcg_bkt_0,
+    ltcg_bkt_1: f.ltcg_bkt_1,
+    niit_threshold: f.niit_threshold,
+  };
+}
+
+/* A deal saved before this switch worked can carry a filing_status its
+   thresholds do not match — the dropdown used to be an inert label sitting over
+   the hard-coded joint-return figures. Reconcile on load so the label and the
+   math can never disagree:
+     · thresholds already match the selected status  -> leave alone
+     · thresholds are exactly some OTHER status's standard set -> stale, re-apply
+     · thresholds match no status at all -> someone typed them, keep the override
+   Only the first two can produce a silently wrong tax, and only those are touched. */
+function reconcileFilingStatus(inputs) {
+  const key = FILING_STATUS[inputs.filing_status] ? inputs.filing_status : 'mfj';
+  const matches = (f) => inputs.ltcg_bkt_0 === f.ltcg_bkt_0
+    && inputs.ltcg_bkt_1 === f.ltcg_bkt_1
+    && inputs.niit_threshold === f.niit_threshold;
+  if (key === inputs.filing_status && matches(FILING_STATUS[key])) return inputs;
+  if (Object.keys(FILING_STATUS).some((k) => matches(FILING_STATUS[k]))) {
+    return applyFilingStatus(inputs, key);
+  }
+  return key === inputs.filing_status ? inputs : { ...inputs, filing_status: key };
+}
 
 /* Excel PMT: payment per period. Returns a NEGATIVE number (cash out). */
 function PMT(rate, nper, pv) {
@@ -45,7 +103,7 @@ const DEFAULTS = {
   manual_depreciation: 423900,  // used when use_auto_depr = 0
 
   /* ---- 3 · Income profile (never framed as "what is your income?") ---- */
-  filing_status: 'mfj',         // mfj | single (thresholds below are MFJ; editable)
+  filing_status: 'mfj',         // key into FILING_STATUS; drives the 3 thresholds below
   income_profile: 'typical',    // moderate ($100k) | typical ($250k) | high ($600k) | custom
   other_taxable_income: 250000, // Typical profile default; drives bracket stacking + surtax base
 
@@ -66,21 +124,23 @@ const DEFAULTS = {
   c_label: 'Partial 1031',            c_note: 'reinvest part, keep the rest', c_show: 1,  c_yield: 0.0625, c_rate: 0.064, c_term: 15, c_amort: 30,
   d_label: 'Levered 1031',            d_note: 'trade up with new debt',       d_show: 1,  d_yield: 0.0725, d_rate: 0.064, d_term: 15, d_amort: 30,
 
-  /* ---- 5 · Tax rates & thresholds (2026 MFJ; every one editable) ---- */
+  /* ---- 5 · Tax rates & thresholds (2026; every one editable) ---- */
   rate_recapture: 0.25,         // unrecaptured §1250 gain, max 25%
   rate_ltcg_0: 0.00,            // 0% bracket
   rate_ltcg_15: 0.15,           // 15% bracket
   rate_ltcg: 0.20,              // 20% bracket (top)
-  ltcg_bkt_0: 98900,            // 2026 MFJ 0%→15% breakpoint (taxable income)
-  ltcg_bkt_1: 613700,           // 2026 MFJ 15%→20% breakpoint
+  // These three are rewritten by applyFilingStatus() whenever filing_status
+  // changes; the defaults are the joint-return figures.
+  ltcg_bkt_0: FILING_STATUS.mfj.ltcg_bkt_0,      // $98,900 — 0%→15% (taxable income)
+  ltcg_bkt_1: FILING_STATUS.mfj.ltcg_bkt_1,      // $613,700 — 15%→20%
   rate_niit: 0.038,             // IRC §1411
-  niit_threshold: 250000,       // MFJ MAGI threshold
+  niit_threshold: FILING_STATUS.mfj.niit_threshold, // $250,000 MAGI
   // The band the printed report quotes instead of naming the client's income.
   report_income_lo: 100000,
   report_income_hi: 600000,
   ma_rate: 0.05,                // MA flat income tax
   ma_surtax_rate: 0.04,         // MA millionaire surtax
-  ma_surtax_threshold: 1107750, // 2026 indexed, per return
+  ma_surtax_threshold: 1107750, // 2026 indexed, per return — same for every filing status
   ordinary_rate: 0.37,          // top ordinary bracket; §1245 recapture
 
   /* ---- 6 · Advanced: cost segregation ---- */
@@ -402,6 +462,7 @@ const INCOME_PROFILES = { moderate: 100000, typical: 250000, high: 600000 };
 const api = {
   PMT, DEFAULTS, compute, financing, FINANCING_DEFAULTS,
   layeredBracketTax, landInfo, autoDepreciation, taxAtIncome, INCOME_PROFILES,
+  FILING_STATUS, applyFilingStatus, reconcileFilingStatus,
 };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 if (typeof window !== 'undefined') window.Calc = api;
