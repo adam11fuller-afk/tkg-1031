@@ -151,10 +151,12 @@ off-screen rather than `display: none` — it needs a real layout box at the tru
 (10.2in) for those measurements to be the print measurements. `zoom`, not `transform`: a transform
 only repaints smaller, leaving the original box to break across pages.
 
-`tests/render_check` is not committed, but the harness renders four deals — 1214 Park, 4 Dean, a
-toggled-column case, and a deliberate worst case (long wrapping names, five columns, cost seg on,
-a partial that neither replaces the debt nor covers its own tax) — and asserts 2 PDF pages with no
-overflow in **either** dimension. The worst case fits at 0.954.
+The Playwright render harness is not committed (it needs chromium), but it renders four deals —
+1214 Park, 4 Dean, a toggled-column case, and a deliberate worst case (long wrapping names, five
+columns, cost seg on, a partial that neither replaces the debt nor covers its own tax) — and
+asserts 2 PDF pages with no overflow in **either** dimension. Checking height alone is not enough:
+a width bug once clipped the last column out of the PDF while every height check read clean. The
+worst case fits at 0.954.
 
 **The income assumption is never stated.** Rather than claim to know the client's income, sheet 1
 footnotes a band (`report_income_lo` to `report_income_hi`, shipped at **$100,000 to $600,000**,
