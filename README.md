@@ -120,11 +120,14 @@ a joint federal return must also file jointly in Massachusetts (M.G.L. c.62C §6
 St. 2023 c.50 §46), so they cannot file separately in MA to claim two thresholds. That is why it
 sits outside `FILING_STATUS`.
 
-`reconcileFilingStatus()` runs on every load of saved inputs and of a saved deal, because the
-dropdown used to be an inert label: a deal saved then can hold `filing_status: 'single'` over the
-joint-return figures and would otherwise compute joint tax under a "Single" label. The rule is
-narrow — if the stored thresholds are exactly some *other* status's standard set they are stale and
-get re-applied; if they match no status at all someone typed them, and the override is kept.
+`reconcileFilingStatus()` runs on every path that hydrates saved inputs, because the dropdown used
+to be an inert label: anything saved then can hold `filing_status: 'single'` over the joint-return
+figures and would otherwise compute joint tax under a "Single" label. The rule is narrow — if the
+stored thresholds are exactly some *other* status's standard set they are stale and get re-applied;
+if they match no status at all someone typed them, and the override is kept. There are four such
+paths, not one: `loadState()` for the live inputs, and `dealInputs()` for the saved-deals list, the
+compare table and loading a deal. Every saved deal goes through `dealInputs()` — add a fifth caller
+and it must too, or that view will quietly disagree with the others.
 
 Changing the switch overwrites any manual override of those three figures, so set the status first
 and let a CPA tune afterwards. Sell & Pay tax on 4 Dean at $250K other income, by status:
@@ -202,10 +205,19 @@ asserts 2 PDF pages with no overflow in **either** dimension. Checking height al
 a width bug once clipped the last column out of the PDF while every height check read clean. The
 worst case fits at 0.954.
 
-The assumptions tables use `table-layout: fixed` for the same reason. Under auto layout a single
-long value — "Married filing separately" — widened the value column, squeezed the labels, and
-wrapped five unrelated rows, costing 56px. Pinning the split confines a long value to its own row,
-and sheet 2 now measures a flat 724px for every filing status.
+The assumptions block has the same fragility and needed a different fix. Its two columns are narrow,
+so one long value — "Married filing separately" — widened the value column under auto table layout,
+squeezed the labels and wrapped five unrelated rows, costing 56px. Pinning the split with
+`table-layout: fixed` stopped the cascade but made it worse to read: the narrower value column then
+split **"$100,000 to $600,000"** across two lines, and a dollar range broken mid-value is not
+something to print for an owner. The fix is structural — the two assumptions *about the client*
+(income band, filing status) are the long ones, so they sit in a full-width strip beneath the two
+property columns, which went back to auto layout. Sheet 2 measures a flat 733px for every filing
+status and both values stay on one line, "Qualifying surviving spouse" included.
+
+The lesson for the harness: it asserts page geometry, and page geometry was *fine* through all of
+this — a value wrapping mid-range changes nothing about the height. Check the rendered text, not
+just the box.
 
 **The income assumption is never stated.** Rather than claim to know the client's income, sheet 1
 footnotes a band (`report_income_lo` to `report_income_hi`, shipped at **$100,000 to $600,000**,

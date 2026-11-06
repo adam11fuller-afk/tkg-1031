@@ -354,11 +354,13 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
 
   /* assumptions */
   .pr-asmwrap { display: grid; grid-template-columns: 0.86fr 1.14fr; font-size: 11px; }
-  /* Fixed layout on purpose: with auto layout one long value ("Married filing
-     separately") widens the value column, squeezes the labels and wraps half
-     the rows. Pinning the split confines a long value to its own row. */
-  table.pr-asm { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; table-layout: fixed; }
-  .pr-asm th[scope="row"] { width: 56%; }
+  table.pr-asm { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  /* The client assumptions, full width beneath the two property columns. Their
+     values are the long ones; in the narrow right-hand column they wrapped, and
+     a fixed split only traded that for splitting a dollar range mid-value. */
+  table.pr-asmwide { width: 100%; border-collapse: collapse; border-top: 1px solid #b8c4d0; font-variant-numeric: tabular-nums; }
+  .pr-asmwide th[scope="row"] { text-align: left; font-weight: 400; padding: 3.5px 9px; color: #5a6b7b; white-space: nowrap; }
+  .pr-asmwide td { text-align: right; padding: 3.5px 9px; font-weight: 700; white-space: nowrap; }
   .pr-asm th[scope="row"] { text-align: left; font-weight: 400; padding: 3.5px 9px; border-bottom: 1px solid #d4dce4; color: #5a6b7b; }
   .pr-asm td { text-align: right; padding: 3.5px 9px; border-bottom: 1px solid #d4dce4; font-weight: 700; }
   .pr-asm tr:last-child th, .pr-asm tr:last-child td { border-bottom: none; }

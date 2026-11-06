@@ -730,14 +730,20 @@ function renderPrintReport(r) {
     ord.some((s) => s.kind === 'partial') ? aRow('Partial: share reinvested', pct(I.partial_pct, 0), 1) : '',
     ord.some((s) => s.kind === 'levered') ? aRow('Levered: buy-up multiple', I.levered_pct.toFixed(2) + '×', 1) : '',
   ].concat(exch.map((s) => aRow('Cap rate, ' + escHtml(s.label), pct(s.yield, 2), 1)))
-   .concat([
-     aRow('Loan rate', loanRate, 1),
-     aRow('Income band', acct(incLo) + ' to ' + acct(incHi), 1),
-     // Not a statement about the client, an input they can correct — which is
-     // exactly what this block is for. It never appears on sheet 1.
-     aRow('Filing status', (FILING_STATUS[I.filing_status] || FILING_STATUS.mfj).label, 1),
-   ])
+   .concat([aRow('Loan rate', loanRate, 1)])
    .filter(Boolean).join('');
+
+  /* The two assumptions about the CLIENT rather than the property. Both carry
+     long values — a dollar range and "Married filing separately" — so they get
+     a full-width strip of their own. Squeezed into the narrow right-hand column
+     they wrapped, and a dollar range broken across two lines ("$100,000 to" /
+     "$600,000") is not something to put in front of an owner.
+     Filing status is an input the client can correct, which is what this block
+     is for. It never appears on sheet 1. */
+  const asmWide = `<table class="pr-asmwide"><tbody><tr>
+      <th scope="row">Income band</th><td class="pr-in">${acct(incLo)} to ${acct(incHi)}</td>
+      <th scope="row">Filing status</th><td class="pr-in">${(FILING_STATUS[I.filing_status] || FILING_STATUS.mfj).label}</td>
+    </tr></tbody></table>`;
 
   const sheet2 = `<section class="pr-page"><div class="pr-fit">
       ${prLetterhead('How the exchange works')}
@@ -763,6 +769,7 @@ function renderPrintReport(r) {
             <table class="pr-asm pr-asmcol1"><tbody>${asmA}</tbody></table>
             <table class="pr-asm"><tbody>${asmB}</tbody></table>
           </div>
+          ${asmWide}
           <div class="pr-asmnote">${PR.inputsNote}</div>
         </section>
       </div>
@@ -845,6 +852,13 @@ function recomputeFinancing() {
 const DEALS_KEY = 'tkg_1031_deals_v2';
 let deals = loadDeals();
 const compareSel = new Set();
+/* Every path that turns a saved deal back into inputs goes through here — the
+   list, the compare table and loading one. A deal saved while the filing-status
+   dropdown was inert can hold a status its thresholds never matched, and all
+   three paths would otherwise show joint-return tax under a "Single" label. */
+function dealInputs(d) {
+  return reconcileFilingStatus({ ...DEFAULTS, ...d.inputs });
+}
 function loadDeals() {
   try { const d = JSON.parse(localStorage.getItem(DEALS_KEY)); return Array.isArray(d) ? d : []; }
   catch (e) { return []; }
@@ -862,7 +876,7 @@ function saveDeal(name) {
 function loadDealById(id) {
   const d = deals.find((x) => x.id === id);
   if (!d) return;
-  state = reconcileFilingStatus({ ...DEFAULTS, ...d.inputs });
+  state = dealInputs(d);
   renderAssumptions();
   recompute();
   document.querySelector('#tabs button[data-tab="summary"]').click();
@@ -878,7 +892,7 @@ function renderSavedDeals() {
   if (!root) return;
   const list = deals.length
     ? deals.map((d) => {
-        const r = compute({ ...DEFAULTS, ...d.inputs });
+        const r = compute(dealInputs(d));
         return `<div class="deal-row">
           <label class="deal-pick"><input type="checkbox" data-cmp="${d.id}" aria-label="Compare ${escHtml(d.name)}" ${compareSel.has(d.id) ? 'checked' : ''}/></label>
           <div class="deal-meta"><div class="deal-name">${escHtml(d.name)}</div>
@@ -912,7 +926,7 @@ function renderCompare() {
   if (!box) return;
   const sel = deals.filter((d) => compareSel.has(d.id));
   if (!sel.length) { box.innerHTML = '<p class="footnote">Tick two or more deals above to compare them side by side.</p>'; return; }
-  const rs = sel.map((d) => ({ name: d.name, r: compute({ ...DEFAULTS, ...d.inputs }) }));
+  const rs = sel.map((d) => ({ name: d.name, r: compute(dealInputs(d)) }));
   const rrow = (label, fn) => `<tr><td>${label}</td>${rs.map((x) => `<td>${fn(x.r)}</td>`).join('')}</tr>`;
   box.innerHTML = `<div class="card"><div class="sec-head">COMPARE (${sel.length})</div>
     <div class="body" style="overflow-x:auto">
