@@ -56,10 +56,13 @@ const DEFAULTS = {
 
   /* ---- Scenarios (A = Sell & Pay; B/B2 = two full exchanges; C/D below) ----
      Each exchange scenario carries an editable label, a show/hide flag, and
-     its own replacement economics (cap rate / loan rate / term / amort). */
+     its own replacement economics (cap rate / loan rate / term / amort).
+     B and B2 are the SAME full exchange; only the replacement differs. Set them
+     to whatever is being proposed (DST, NNN, multifamily, a development) and
+     move the cap rate to match. The tax treatment is identical either way. */
   a_label: 'Sell & Pay',              a_note: 'pay the tax now',              a_show: 1,
   b_label: '1031 into DST',           b_note: 'passive, fractional',          b_show: 1,  b_yield: 0.0475, b_rate: 0.064, b_term: 15, b_amort: 30,
-  b2_label: '1031 into Absolute NNN', b2_note: 'single tenant',               b2_show: 1, b2_yield: 0.0625, b2_rate: 0.064, b2_term: 15, b2_amort: 30,
+  b2_label: '1031 into NNN',          b2_note: 'single tenant, net lease',    b2_show: 1, b2_yield: 0.0625, b2_rate: 0.064, b2_term: 15, b2_amort: 30,
   c_label: 'Partial 1031',            c_note: 'reinvest part, keep the rest', c_show: 1,  c_yield: 0.0625, c_rate: 0.064, c_term: 15, c_amort: 30,
   d_label: 'Levered 1031',            d_note: 'trade up with new debt',       d_show: 1,  d_yield: 0.0725, d_rate: 0.064, d_term: 15, d_amort: 30,
 
@@ -72,6 +75,9 @@ const DEFAULTS = {
   ltcg_bkt_1: 613700,           // 2026 MFJ 15%→20% breakpoint
   rate_niit: 0.038,             // IRC §1411
   niit_threshold: 250000,       // MFJ MAGI threshold
+  // The band the printed report quotes instead of naming the client's income.
+  report_income_lo: 100000,
+  report_income_hi: 600000,
   ma_rate: 0.05,                // MA flat income tax
   ma_surtax_rate: 0.04,         // MA millionaire surtax
   ma_surtax_threshold: 1107750, // 2026 indexed, per return

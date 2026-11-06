@@ -333,7 +333,7 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
   .pr-tax tr.pr-range th, .pr-tax tr.pr-range td { border-top: 1px solid #d4dce4; border-bottom: none; background: none; color: #5a6b7b; font-size: 10.5px; padding: 5px 10px; font-weight: 400; }
 
   /* assumptions */
-  .pr-asmwrap { display: grid; grid-template-columns: 1fr 1fr; font-size: 11px; }
+  .pr-asmwrap { display: grid; grid-template-columns: 0.86fr 1.14fr; font-size: 11px; }
   table.pr-asm { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
   .pr-asm th[scope="row"] { text-align: left; font-weight: 400; padding: 3.5px 9px; border-bottom: 1px solid #d4dce4; color: #5a6b7b; }
   .pr-asm td { text-align: right; padding: 3.5px 9px; border-bottom: 1px solid #d4dce4; font-weight: 700; }

@@ -128,6 +128,8 @@ const SECTIONS = [
       ['filing_status', 'Filing Status', 'select', 'Thresholds below are the married-filing-jointly figures.',
         [['mfj', 'Married filing jointly'], ['single', 'Single']]],
       ['other_taxable_income', 'Other Taxable Income (override)', 'money', 'The client’s other taxable income. Pick a profile above, or type a figure.'],
+      ['report_income_lo', 'Printed income band, low', 'money', 'The report never states an income. It quotes this band and the tax range across it.'],
+      ['report_income_hi', 'Printed income band, high', 'money', 'Most owners fall between these two figures.'],
     ],
   },
   {
@@ -143,7 +145,7 @@ const SECTIONS = [
   },
   {
     num: '6', title: '1031 EXCHANGE SIZING & SCENARIOS',
-    desc: 'How much equity each strategy rolls, plus the replacement economics. Rename any scenario, toggle it on/off, and set its cap rate and financing. B and B2 are two full exchanges so you can compare a DST against a NNN.',
+    desc: 'How much equity each strategy rolls, plus the replacement economics. Rename any scenario, toggle it on/off, and set its cap rate and financing. The two full-exchange rows are the same exchange into different replacements, so set them to whatever you are proposing.',
     fields: [
       ['partial_pct', 'Partial: % of equity reinvested', 'pct', 'Reinvest this share of equity; the rest is cash boot, taxed.'],
       ['partial_replace_debt', 'Partial: replace the mortgage with new debt?', 'check', 'On = new loan replaces the debt (only the cash you pull is taxed). Off = pay off the mortgage; the debt relief is also taxed as boot.'],
@@ -213,7 +215,7 @@ function mxCell(key, type) {
   return `<input class="mx-in" type="number" min="0" step="${stp}" data-key="${key}" data-type="${type}" value="${value}" aria-label="${key}"/>`;
 }
 function replacementMatrix() {
-  const rows = [['B', 'Full exchange A'], ['B2', 'Full exchange B'], ['C', 'Partial'], ['D', 'Levered']];
+  const rows = [['B', 'Full exchange, first replacement'], ['B2', 'Full exchange, second replacement'], ['C', 'Partial'], ['D', 'Levered']];
   const body = rows.map(([k, kind]) => {
     const lk = k.toLowerCase();
     return `<tr>
@@ -232,7 +234,7 @@ function replacementMatrix() {
       <thead><tr><th class="mx-chk">Show</th><th>Label</th><th>Sub-label (prints)</th><th>Cap Rate %</th><th>Loan Rate %</th><th>Term (yr)</th><th>Amort (yr)</th></tr></thead>
       <tbody>${body}</tbody>
     </table>
-    <p class="mx-note">B and B2 are both full exchanges (replace the full net value); only the cap rate differs, so you can compare a DST (lower, stabilized yield) against an Absolute NNN (higher yield). Cap rate drives NOI; loan rate/term/amort apply to any new debt.</p>
+    <p class="mx-note">The two full-exchange rows replace the full net value and defer the whole gain. The replacement can be anything that qualifies: a DST, a net leased building, multifamily, a development. Only the label, the sub-label and the cap rate change, so use them to price the same exchange against two different replacements. Cap rate drives NOI; loan rate/term/amort apply to any new debt.</p>
   </div>`;
 }
 
@@ -638,10 +640,10 @@ const PR = {
     'Replace the value, the equity and the debt in full and the entire gain is deferred. Reinvest less than that and only the shortfall is taxed, not the whole gain.',
     'The tax is deferred rather than erased. It carries into the basis of the new property and comes due if that property is later sold without another exchange.',
   ],
-  whatDst: [
-    'A Delaware Statutory Trust is a fractional interest in a large, professionally managed property. The IRS treats it as like-kind, so it qualifies as replacement property in an exchange.',
-    'You own a share of the income and carry no management role at all.',
-    'The trade-offs are yield and control. Going-in yields run below what a building bought directly would return, and the interest is illiquid for the life of the hold, commonly five to ten years. It is the most reliable way to place proceeds inside the identification window.',
+  replacement: [
+    'A full exchange defers the whole gain whatever you buy, so long as the value, the equity and the debt are replaced. The replacement decides the return and the workload, not the tax.',
+    'A Delaware Statutory Trust sits at one end: a fractional interest in a large, professionally managed property. It qualifies as like-kind and carries no management role, but yields run lower and the interest is illiquid, commonly five to ten years.',
+    'At the other end are assets you control, from a net leased building to multifamily or a development. Higher yields, more work, more risk.',
   ],
   day0: 'You close the sale. A qualified intermediary receives the proceeds, not you.',
   day45: 'Identify the replacement property in writing. You may name up to three, and buy any or all of them.',
@@ -677,9 +679,10 @@ function renderPrintReport(r) {
   if (!ord.length) { root.innerHTML = ''; return; }
   const nCol = ord.length + 1;
 
-  // Tax range across the federal rate band: no stated income, no filing status.
-  const loTax = taxAtIncome(I, I.ltcg_bkt_0).tax_if_sold;
-  const hiTax = taxAtIncome(I, I.ltcg_bkt_1).tax_if_sold;
+  // Tax range across the assumed income band: no stated income, no filing status.
+  const incLo = I.report_income_lo, incHi = I.report_income_hi;
+  const loTax = taxAtIncome(I, incLo).tax_if_sold;
+  const hiTax = taxAtIncome(I, incHi).tax_if_sold;
 
   /* ---- sheet 1: the comparison ---- */
   let z = 0;
@@ -739,7 +742,7 @@ function renderPrintReport(r) {
     </table>`;
 
   const notes = [
-    `Figures assume other taxable income inside the ${acct(I.ltcg_bkt_0)} to ${acct(I.ltcg_bkt_1)} federal rate band. Across that band the total tax on a sale moves between ${acct(loTax)} and ${acct(hiTax)}. Sheet 2 sets out the calculation.`,
+    `Figures assume other taxable income between ${acct(incLo)} and ${acct(incHi)}, where most owners fall. There is some variation across that range: the total tax on a sale runs from ${acct(loTax)} to ${acct(hiTax)}. Sheet 2 sets out the calculation.`,
   ];
   const hasPartial = ord.some((s) => s.kind === 'partial');
   if (hasPartial) notes.push(PR.partialNote);
@@ -816,7 +819,10 @@ function renderPrintReport(r) {
     ord.some((s) => s.kind === 'partial') ? aRow('Partial: share reinvested', pct(I.partial_pct, 0), 1) : '',
     ord.some((s) => s.kind === 'levered') ? aRow('Levered: buy-up multiple', I.levered_pct.toFixed(2) + '×', 1) : '',
   ].concat(exch.map((s) => aRow('Cap rate, ' + escHtml(s.label), pct(s.yield, 2), 1)))
-   .concat([aRow('Loan rate', loanRate, 1)])
+   .concat([
+     aRow('Loan rate', loanRate, 1),
+     aRow('Income band assumed', acct(incLo) + ' to ' + acct(incHi), 1),
+   ])
    .filter(Boolean).join('');
 
   const sheet2 = `<section class="pr-page">
@@ -833,8 +839,8 @@ function renderPrintReport(r) {
       <div class="pr-2col">
         <section class="pr-box"><h2 class="pr-boxhead">HOW A 1031 EXCHANGE WORKS</h2>
           <div class="pr-boxbody">${PR.how1031.map((p) => `<p>${p}</p>`).join('')}</div></section>
-        <section class="pr-box"><h2 class="pr-boxhead">WHAT A DST IS</h2>
-          <div class="pr-boxbody">${PR.whatDst.map((p) => `<p>${p}</p>`).join('')}</div></section>
+        <section class="pr-box"><h2 class="pr-boxhead">CHOOSING THE REPLACEMENT PROPERTY</h2>
+          <div class="pr-boxbody">${PR.replacement.map((p) => `<p>${p}</p>`).join('')}</div></section>
       </div>
       <div class="pr-2col">
         <section class="pr-box"><h2 class="pr-boxhead">HOW THE TAX IS CALCULATED</h2>${taxBox}</section>

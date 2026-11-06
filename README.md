@@ -7,10 +7,15 @@ the browser; inputs save only to the visitor's own `localStorage`.
 Live: https://tkg-1031.pages.dev · Repo: `adam11fuller-afk/tkg-1031` (this `dist/` folder is the
 deployed copy; Cloudflare Pages auto-deploys on push to `main`).
 
-Scenarios: **A — Sell & Pay**, **B / B2 — two full §1031 exchanges** (defaults: *1031 into DST* at
-4.75% and *1031 into Absolute NNN* at 6.25%, so you can compare product types), **C — Partial**,
+Scenarios: **A — Sell & Pay**, **B / B2 — two full §1031 exchanges**, **C — Partial**,
 **D — Leveraged** (1.25× buy-up at a 7.25% cap). Every scenario has an editable label, an editable
 sub-label that prints under the column head, a show/hide toggle, and its own cap rate and financing.
+
+> **B and B2 are the same exchange into different replacements.** A full exchange defers the whole
+> gain whatever you buy; only the return changes. The shipped defaults are *1031 into DST* at 4.75%
+> and *1031 into NNN* at 6.25%, but they are just defaults: set either to an absolute NNN, a plain
+> NNN, multifamily, a development, anything that qualifies, and move the cap rate to match. Nothing
+> in the report hardcodes a product type.
 
 > On the levered column: the loan constant at 6.4% over a 30-year amortization is **7.51%**, so at a
 > 7.25% cap the extra debt is roughly break-even. The higher cash flow comes from buying a
@@ -125,17 +130,20 @@ negatives and an en-dash for zero.
   Sections are THE SALE, THE GAIN AND THE TAX, THE REPLACEMENT PROPERTY, ANNUAL CASH FLOW and
   WHERE YOU LAND (total tax paid, then what you keep or reinvest). Numbered footnotes below.
 - **Sheet 2, how it works.** The 45/180 timeline including the three-property identification rule,
-  plain-English explainers for a 1031 exchange and a DST, the tax calculation per taxed scenario,
-  and every assumption.
+  plain-English explainers for how a 1031 works and how to choose the replacement property (which
+  covers the whole spectrum, a DST through to a development, rather than naming one product), the
+  tax calculation per taxed scenario, and every assumption.
 
 **It generates from the inputs.** The prose is fixed boilerplate that never changes between deals,
 and every variable sits in its own cell, so no copy is rewritten per deal. Hiding a scenario drops
 its column and the FULL EXCHANGE band collapses on its own.
 
 **The income assumption is never stated.** Rather than claim to know the client's income, sheet 1
-footnotes the federal rate band (`ltcg_bkt_0` to `ltcg_bkt_1`) and the tax range across it, and
-sheet 2 repeats that range under the tax total. Filing status does not appear on the report; note
-that the bracket thresholds shipped are the joint-return figures.
+footnotes a band (`report_income_lo` to `report_income_hi`, shipped at **$100,000 to $600,000**,
+where most owners fall) and the tax range across it, noting there is some variation. Sheet 2 carries
+the band as an input cell and repeats the range under the tax total. At the 1214 Park defaults that
+range is **$528,957 to $575,213**. Both ends are editable inputs. Filing status does not appear on
+the report; note that the bracket thresholds shipped are the joint-return figures.
 
 ### Verified figures
 
