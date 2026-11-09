@@ -42,7 +42,8 @@ Double-click `index.html`, or serve the folder (`python3 -m http.server 4031`). 
 
 ## Tests
 ```bash
-node tests/engine.test.js
+node tests/engine.test.js       # two hand-verified deals + the filing-status switch
+node tests/invariants.test.js   # 4,000 generated deals: every field finite, identities hold
 ```
 Verifies the tax engine against two hand-checked deals, reproduces the historical README figures,
 and checks that the filing-status switch moves all three thresholds into the engine (not just the
@@ -222,11 +223,22 @@ just the box.
 **The identification strip shares the grid's columns.** It used to be auto-layout with 12% labels,
 so its cell widths came from their contents: its divisions fell at 12/28/40/62/74% while the grid's
 columns are at 25/40/55/70/85%, and almost nothing lined up. Worse, a longer client name moved every
-division, so the strip was ragged in a different place on each deal. It is now `table-layout: fixed`
-at 25/15/15/15/15/15, which puts all six divisions exactly on the grid's lines and holds them there
-whatever the content. The cost is that the address column is one grid column wide: a very long
-address wraps to three lines and pushes sheet 1 to a 0.914 fit. Real addresses are short, and
-wrapping beats silently truncating an address with an ellipsis.
+division, so the strip was ragged in a different place on each deal.
+
+The first fix pinned it to `table-layout: fixed` at 25/15/15/15/15/15 — **which was right only for
+the default deal.** The grid is one 25% row-label column plus *one column per visible scenario*, so
+hiding a scenario re-divides it: four scenarios split at 25/43.75/62.5/81.25, three at 25/50/75.
+Toggling a column off is routine, so the strip went ragged again for most real deals and the harness
+could not see it, because hiding a column changes nothing about page height or width.
+
+`prIdStrip()` now emits a `<colgroup>` mirroring the grid's own columns and distributes the three
+label/value pairs across them, giving extra columns to the leftmost pair (addresses are the long
+value) and collapsing a pair into a single inline cell where it can only have one column. Verified
+aligned at 5, 4, 3, 2 and 1 visible scenarios. A one-scenario report has nothing to align to, so the
+strip runs inline in a single cell with no internal divisions at all.
+
+The address column is one grid column wide, so a very long address wraps and pushes sheet 1 to a
+0.914 fit. Real addresses are short, and wrapping beats silently truncating a client's address.
 
 For the same reason the sheet-2 cap-rate rows lost their `Cap rate, ` prefix and sit under a group
 heading instead. `Cap rate, 1031 into Absolute NNN` could not fit that column and wrapped every one
@@ -271,6 +283,31 @@ report's "Estimated tax by other income" table.
 
 ---
 
+## Guards against a wrong number reaching a client
+
+**Nothing can print as ($∞).** `PMT` returns 0 rather than ±Infinity when the period count is
+not positive, and `sanitize()` clamps `recovery_life` and every scenario's term and amortisation to
+a minimum of 1 year before `compute()` runs. These are divisors: a 0 there is a typo, not a
+judgement call. `compute()` returns both `inputs` (sanitized, what the engine used and what the
+report shows) and `raw_inputs` (exactly as typed), and the UI compares them so it can say a value
+was clamped — checking the sanitized copy would always look clean, which is the bug the first
+version of this had.
+
+**Data-hygiene checks** (`buildDataChecks`) are separate from the economic warnings and never print.
+They catch input mistakes that would otherwise reach a CPA looking deliberate: no prepared-for name,
+no address, a $0 original purchase price, a future purchase year, cost-seg on with a $0 §1245
+figure, improvements dated before the purchase, a clamped input, a deal that is actually a loss, and
+above all **a manual accumulated-depreciation figure**, which states both the typed figure and what
+auto would have given. Print asks for confirmation once when any are outstanding.
+
+**New deal vs Reset.** State is one flat object that persists, so starting a new owner by overwriting
+the sale fields used to carry the previous building's depreciation with it — and because typing a
+manual figure also switches auto off permanently, it kept applying. On one real pair of deals that
+overstated the tax by **$160,272** with nothing on the report to show it. `New deal` clears
+`DEAL_FIELDS` (the property, the client, basis, improvements, assessed values, manual depreciation,
+cost seg) and keeps the standing assumptions (selling-cost rates, cap rates, loan terms, filing
+status, income band). `Reset` still restores the 1214 Park sample in full.
+
 ## File map
 | File | Purpose |
 |---|---|
@@ -278,7 +315,8 @@ report's "Estimated tax by other income" table.
 | `assets/calc.js` | **Calculation engine** — pure functions; `window.Calc` + `module.exports` (for tests) |
 | `assets/app.js` | UI: inputs, income profile, scenarios, charts, scenario detail, **print report** |
 | `assets/styles.css` | On-screen branding + the `@media print` Excel-style report |
-| `tests/engine.test.js` | Node test suite (4 Dean, 1214 deltas, levered-depr, NIIT/surtax) |
+| `tests/engine.test.js` | Node suite: 4 Dean, 1214 deltas, levered-depr, NIIT/surtax, filing status |
+| `tests/invariants.test.js` | Fuzz/invariant suite: 4,000 generated deals, every field finite |
 
 > Estimates only — not tax or legal advice. §1031 deferral requires replacing value, equity, AND
 > debt, plus the 45-day identification / 180-day closing deadlines. Confirm with your CPA and attorney.

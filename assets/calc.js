@@ -72,8 +72,43 @@ function reconcileFilingStatus(inputs) {
 
 /* Excel PMT: payment per period. Returns a NEGATIVE number (cash out). */
 function PMT(rate, nper, pv) {
+  // nper <= 0 has no defined payment. Returning 0 instead of +/-Infinity matters:
+  // a mis-keyed 0 in the Amort column used to reach the client report as ($\u221e).
+  // sanitize() also clamps the input, so this is the second line of defence.
+  if (!(nper > 0)) return 0;
   if (rate === 0) return -pv / nper;
   return (-pv * rate) / (1 - Math.pow(1 + rate, -nper));
+}
+
+/* Clamp the handful of inputs that can produce a non-finite number, so nothing
+   the user can type reaches the printed report as Infinity or NaN. These are
+   divisors: a recovery life or an amortisation of 0 is not a judgement call, it
+   is a typo. Everything else is left exactly as entered - this is not a
+   validation layer and it must never quietly change a figure that is merely
+   unusual. buildWarnings() surfaces the clamp on screen. */
+const MIN_YEARS = 1;
+function sanitize(i) {
+  const n = (v, d) => (Number.isFinite(v) ? v : d);
+  const out = { ...i };
+  out.recovery_life = Math.max(MIN_YEARS, n(i.recovery_life, 39));
+  for (const k of ['b', 'b2', 'c', 'd']) {
+    out[k + '_amort'] = Math.max(MIN_YEARS, n(i[k + '_amort'], 30));
+    out[k + '_term'] = Math.max(MIN_YEARS, n(i[k + '_term'], 15));
+  }
+  return out;
+}
+
+/* True when sanitize() would have changed something, i.e. the user typed a
+   value the engine had to clamp. The UI uses this to say so out loud. */
+function clampedInputs(i) {
+  const bad = [];
+  if (!(i.recovery_life >= MIN_YEARS)) bad.push('Recovery life');
+  for (const [k, label] of [['b', 'first full exchange'], ['b2', 'second full exchange'],
+                            ['c', 'Partial'], ['d', 'Levered']]) {
+    if (!(i[k + '_amort'] >= MIN_YEARS)) bad.push('Amortisation, ' + label);
+    if (!(i[k + '_term'] >= MIN_YEARS)) bad.push('Term, ' + label);
+  }
+  return bad;
 }
 
 /* Default inputs — the 1214 Park deal, plus the 2026 tax table. */
@@ -217,7 +252,8 @@ function holdEconomics(p, sz) {
 }
 
 /* The whole model. Returns every derived value the UI/report needs. */
-function compute(i) {
+function compute(rawInputs) {
+  const i = sanitize(rawInputs);
   // Shared transaction-cost block
   const broker_commission = i.sale_price * i.broker_pct;
   const ma_transfer_tax = (i.sale_price / 500) * i.transfer_rate;
@@ -408,6 +444,10 @@ function compute(i) {
 
   return {
     inputs: i,
+    // The inputs exactly as typed, before sanitize() clamped anything. The UI
+    // compares the two to tell the user a value was out of range - checking the
+    // sanitized copy would always look clean, which is what it did at first.
+    raw_inputs: rawInputs,
     broker_commission, ma_transfer_tax, transaction_costs,
     land_pct, land_source: land.source,
     auto_depreciation, accumulated_depreciation,
@@ -463,6 +503,7 @@ const api = {
   PMT, DEFAULTS, compute, financing, FINANCING_DEFAULTS,
   layeredBracketTax, landInfo, autoDepreciation, taxAtIncome, INCOME_PROFILES,
   FILING_STATUS, applyFilingStatus, reconcileFilingStatus,
+  sanitize, clampedInputs, MIN_YEARS,
 };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 if (typeof window !== 'undefined') window.Calc = api;

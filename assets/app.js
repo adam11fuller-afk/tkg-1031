@@ -6,7 +6,8 @@
    ============================================================ */
 (function () {
 const { DEFAULTS, compute, financing, FINANCING_DEFAULTS, taxAtIncome, INCOME_PROFILES,
-        FILING_STATUS, applyFilingStatus, reconcileFilingStatus } = window.Calc;
+        FILING_STATUS, applyFilingStatus, reconcileFilingStatus,
+        clampedInputs } = window.Calc;
 const CURRENT_YEAR = new Date().getFullYear();
 
 /* ---------- state ---------- */
@@ -512,9 +513,18 @@ function renderSummary(r) {
   root.innerHTML = html;
 
   const warns = buildWarnings(r);
-  document.getElementById('warn-box').innerHTML = warns.map((w) => `<div class="warn">⚠︎ ${w.text}</div>`).join('');
+  document.getElementById('warn-box').innerHTML =
+    buildDataChecks(r).map((t) => `<div class="warn check">Check: ${t}</div>`).join('')
+    + warns.map((w) => `<div class="warn">⚠︎ ${w.text}</div>`).join('');
   const pb = document.getElementById('print-btn-sum');
-  if (pb) pb.addEventListener('click', () => { fitPrintPages(); window.print(); });
+  if (pb) pb.addEventListener('click', () => {
+    // Not a blocker - one look at anything suspicious before it leaves the room.
+    const checks = buildDataChecks(r);
+    if (checks.length && !window.confirm(
+      'Before printing, check these inputs:\n\n  • ' + checks.join('\n  • ') + '\n\nPrint anyway?')) return;
+    fitPrintPages();
+    window.print();
+  });
 }
 
 function profileLabel() {
@@ -524,6 +534,48 @@ function profileLabel() {
 function filingLabel() {
   const f = FILING_STATUS[state.filing_status];
   return f ? f.label.toLowerCase() : FILING_STATUS.mfj.label.toLowerCase();
+}
+
+/* Fields that belong to ONE property. Everything else - selling-cost rates,
+   cap rates, loan terms, filing status, the income band - is a standing
+   assumption that should survive from deal to deal. "New deal" clears this
+   list and keeps the rest; Reset restores the 1214 Park sample in full. */
+const DEAL_FIELDS = {
+  prepared_for: '', property_address: '',
+  sale_price: 0, original_purchase_price: 0, current_mortgage_payoff: 0,
+  capital_improvements: 0, improvement_year: CURRENT_YEAR, year_purchased: CURRENT_YEAR,
+  assessed_land: 0, assessed_building: 0,
+  manual_depreciation: 0, use_auto_depr: 1,
+  sec1245_depreciation: 0, cost_seg_flag: 0,
+};
+
+/* Data-hygiene checks. These are NOT economic warnings and they never print -
+   they catch the input mistakes that would otherwise reach an owner's CPA
+   looking deliberate. The one that prompted this: a manual accumulated-
+   depreciation figure typed for one building silently carries into the next
+   deal (it also switches auto off permanently), and on a real pair of deals
+   that overstated the tax by $160,272 with nothing on the report to show it. */
+function buildDataChecks(r) {
+  const i = r.inputs, out = [];
+  if (!String(i.prepared_for || '').trim()) out.push('No "Prepared for" name - the report will print a dash.');
+  if (!String(i.property_address || '').trim()) out.push('No property address.');
+  if (!(i.original_purchase_price > 0)) out.push('Original purchase price is $0, so the basis is improvements only and the gain is overstated.');
+  if (i.year_purchased >= CURRENT_YEAR) out.push(`Year purchased is ${i.year_purchased} - years held is ${r.years_held}.`);
+  if (i.use_auto_depr === 0) {
+    out.push(`Accumulated depreciation is a MANUAL ${money(i.manual_depreciation)}, typed rather than calculated. `
+      + `Auto would give ${money(r.auto_depreciation)}. Check it belongs to this building.`);
+  }
+  if (i.cost_seg_flag === 1 && !(i.sec1245_depreciation > 0)) out.push('Cost-seg recapture is on but the §1245 figure is $0.');
+  if (i.capital_improvements > 0 && i.improvement_year < i.year_purchased) {
+    out.push(`Improvements are dated ${i.improvement_year}, before the ${i.year_purchased} purchase.`);
+  }
+  if (r.realized_gain <= 0) {
+    out.push(`This deal is a LOSS of ${money(-r.realized_gain)} - the sale price is below the adjusted basis. `
+      + 'There is no gain to defer, so the exchange columns are not a comparison.');
+  }
+  const clamped = clampedInputs(r.raw_inputs || i);
+  if (clamped.length) out.push('Out of range, so the engine used a minimum of 1 year: ' + clamped.join('; ') + '.');
+  return out;
 }
 
 function buildWarnings(r) {
@@ -563,6 +615,44 @@ const PR = {
   inputsNote: 'Figures in blue are inputs. Tell us if any are wrong and every number in this analysis moves with them.',
   disclaimer: 'Estimates only, not tax or legal advice. Confirm with your CPA and attorney.',
 };
+
+/* The identification strip shares the comparison grid's columns, so its
+   divisions land on the grid's lines instead of cutting across them.
+
+   The grid is one 25% row-label column plus ONE COLUMN PER VISIBLE SCENARIO,
+   so that split changes every time a scenario is toggled off: five scenarios
+   divide at 25/40/55/70/85, four at 25/43.75/62.5/81.25, three at 25/50/75.
+   Pinning the strip to the five-column case (the first version of this fix)
+   was right for the default deal and wrong for every other one.
+
+   Three label/value pairs have to fit into (scenarios + 1) columns. Where a
+   pair can have two columns it keeps a grey label cell and a value cell; where
+   it can only have one, it collapses into a single cell with the label inline.
+   Extra columns go to the leftmost pair, because addresses are the long value.
+   Below three columns there is nothing meaningful to align to, so it falls
+   back to an even split. */
+function prIdStrip(I, dateStr, nCols) {
+  const pairs = [
+    ['Property', escHtml(I.property_address || DASH)],
+    ['Prepared for', escHtml(I.prepared_for || DASH)],
+    ['Date', dateStr],
+  ];
+  if (nCols < 3) {
+    // One scenario: two grid columns cannot carry six cells, and any split we
+    // chose would be a line that matches nothing. Run the pairs inline in a
+    // single cell instead, so the strip has no internal divisions to misalign.
+    return `<table class="pr-id"><tbody><tr><td class="pr-id-merged" colspan="${nCols}">${pairs
+      .map(([k, v]) => `<span class="pr-id-k">${k}</span>${v}`).join('<span class="pr-id-gap"></span>')}`
+      + `</td></tr></tbody></table>`;
+  }
+  const base = Math.floor(nCols / 3), rem = nCols % 3;
+  const span = [0, 1, 2].map((n) => base + (n < rem ? 1 : 0));
+  const colgroup = `<colgroup><col class="pr-c0"/>${'<col/>'.repeat(nCols - 1)}</colgroup>`;
+  const cells = pairs.map(([k, v], n) => (span[n] >= 2
+    ? `<th scope="row">${k}</th><td>${v}</td>`
+    : `<td class="pr-id-merged"><span class="pr-id-k">${k}</span>${v}</td>`)).join('');
+  return `<table class="pr-id">${colgroup}<tbody><tr>${cells}</tr></tbody></table>`;
+}
 
 function prLetterhead(doctype) {
   return `<div class="pr-head">
@@ -665,11 +755,7 @@ function renderPrintReport(r) {
 
   const sheet1 = `<section class="pr-page"><div class="pr-fit">
       ${prLetterhead('1031 Exchange &amp; Financing Analysis')}
-      <table class="pr-id"><tbody><tr>
-        <th scope="row">Property</th><td class="pr-id-addr">${escHtml(I.property_address || DASH)}</td>
-        <th scope="row">Prepared for</th><td>${escHtml(I.prepared_for || DASH)}</td>
-        <th scope="row">Date</th><td>${dateStr}</td>
-      </tr></tbody></table>
+      ${prIdStrip(I, dateStr, ord.length + 1)}
       ${grid}
       <ol class="pr-notes">${notes.map((n) => `<li>${n}</li>`).join('')}</ol>
       ${prFooter(1, 2)}
@@ -977,6 +1063,14 @@ document.getElementById('tabs').addEventListener('click', (e) => {
 });
 
 /* ---------- reset ---------- */
+document.getElementById('newdeal-btn').addEventListener('click', () => {
+  if (!window.confirm('Clear the property and start a new deal?\n\nSelling-cost rates, cap rates, loan terms, filing status and the income band are kept.')) return;
+  Object.assign(state, DEAL_FIELDS);
+  renderAssumptions();
+  recompute();
+  document.querySelector('#tabs button[data-tab="assumptions"]').click();
+});
+
 document.getElementById('reset-btn').addEventListener('click', () => {
   state = { ...DEFAULTS };
   finState = { ...FINANCING_DEFAULTS };

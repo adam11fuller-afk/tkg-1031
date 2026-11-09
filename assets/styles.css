@@ -254,6 +254,9 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
    scale each sheet to one page before the dialog opens.
    Sizes are px at 96dpi, matching the approved artboards 1:1.
    ============================================================ */
+/* Data-hygiene checks: the input is suspicious, not the economics. Screen only. */
+.warn.check { border-left-color: #8a6d1f; background: #fdf6e3; color: #5c4a14; }
+
 @media screen {
   #print-report {
     position: fixed; top: 0; left: -20000px; z-index: -1;
@@ -301,12 +304,17 @@ table.summary tr.bottom td:first-child { font-family: var(--font-display); text-
      sized to their contents, so a longer client name moved every division and
      the strip was ragged in a different place on every deal. */
   table.pr-id { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 10px; table-layout: fixed; }
-  .pr-id th { text-align: left; padding: 4px 8px; border: 1px solid #b8c4d0; background: #eef2f6; font-weight: 700; color: #5a6b7b; width: 15%; }
-  .pr-id th:first-child { width: 25%; }   /* sits over the grid's row-label column */
+  .pr-id th { text-align: left; padding: 4px 8px; border: 1px solid #b8c4d0; background: #eef2f6; font-weight: 700; color: #5a6b7b; }
+  /* Widths come from the colgroup prIdStrip() emits, which mirrors the grid's
+     own columns; the even fallback is only for a one-scenario report. */
+  .pr-id col.pr-c0 { width: 25%; }
+  .pr-id-gap { display: inline-block; width: 26px; }
+  /* A pair that could only get one column: grey label inline, value after it. */
+  .pr-id-merged { text-align: left !important; }
+  .pr-id-k { color: #5a6b7b; font-weight: 700; margin-right: 10px; }
   /* No truncation here: a long address wraps and the strip gets taller, which
      fitPrintPages() absorbs. Silently clipping a client's address would not. */
-  .pr-id td { padding: 4px 8px; border: 1px solid #b8c4d0; font-weight: 700; width: 15%; }
-  .pr-id td.pr-id-addr { width: 15%; }
+  .pr-id td { padding: 4px 8px; border: 1px solid #b8c4d0; font-weight: 700; }
 
   /* the comparison grid */
   table.pr-grid { width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; margin-top: 11px; table-layout: fixed; }
