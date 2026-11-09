@@ -4,6 +4,11 @@ A client-side web calculator that compares a Massachusetts CRE sale against §10
 strategies, and prints a branded, Excel-style client report. **No backend** — all math runs in
 the browser; inputs save only to the visitor's own `localStorage`.
 
+> **This file is how the CODE works** — formulas, the report's mechanics, verified figures.
+> How the **project** works lives one level up, outside this repo:
+> `../START HERE.md`, `../docs/ARCHITECTURE.md`, `../docs/WORKFLOW.md`,
+> `../docs/DECISIONS.md` (read before changing the report), `../docs/OPEN-ITEMS.md`.
+
 Live: https://tkg-1031.pages.dev · Repo: `adam11fuller-afk/tkg-1031` (this `dist/` folder is the
 deployed copy; Cloudflare Pages auto-deploys on push to `main`).
 
